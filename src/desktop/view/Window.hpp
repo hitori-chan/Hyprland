@@ -191,6 +191,22 @@ namespace Desktop::View {
         MONITORID m_wantsInitialFullscreenMonitor = MONITOR_INVALID;
         bool      m_wantsInitialMaximize          = false;
 
+        // mapped straight into a fullscreen mode without ever stating a usable
+        // windowed geometry: any floating size on record is a pre-map
+        // placeholder, so the first restore must not impose it.
+        bool m_bornFullscreen = false;
+
+        // has presented at least one real windowed frame (floating, not
+        // fullscreen, not pinned at its own min size): such a window is never
+        // treated as born-fullscreen again — its remembered box is real.
+        bool m_everWindowed = false;
+
+        // the client owes us its own choice of windowed size (restore from
+        // born-fullscreen): configures carry 0x0 until its answering commit
+        // is adopted. Serial of the 0x0 configure; 0 = inactive.
+        uint32_t m_sizeFromClientSerial = 0;
+        bool     m_sizeFromClientAcked  = false;
+
         // bitfield suppressEvents
         uint64_t m_suppressedEvents = SUPPRESS_NONE;
 
@@ -411,6 +427,7 @@ namespace Desktop::View {
         Vector2D                          xwaylandPositionToReal(Vector2D size);
         void                              updateX11SurfaceScale();
         void                              sendWindowSize(bool force = false);
+        void                              requestClientSize();
         NContentType::eContentType        getContentType();
         void                              setContentType(NContentType::eContentType contentType);
         void                              deactivateGroupMembers();
