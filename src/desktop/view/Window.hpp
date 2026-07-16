@@ -189,6 +189,7 @@ namespace Desktop::View {
         // Fullscreen and Maximize
         bool      m_wantsInitialFullscreen        = false;
         MONITORID m_wantsInitialFullscreenMonitor = MONITOR_INVALID;
+        bool      m_wantsInitialMaximize          = false;
 
         // bitfield suppressEvents
         uint64_t m_suppressedEvents = SUPPRESS_NONE;

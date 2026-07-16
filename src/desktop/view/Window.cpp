@@ -1440,6 +1440,9 @@ void CWindow::onUpdateState() {
             else if (CLIENT_STATE == Fullscreen::FSMODE_NONE)
                 Fullscreen::controller()->setFullscreenMode(window, std::nullopt, Fullscreen::FSMODE_MAXIMIZED);
         }
+
+        if (!m_isMapped)
+            m_wantsInitialMaximize = requestsMX.value();
     }
 }
 
@@ -2138,6 +2141,8 @@ void CWindow::mapWindow() {
     std::optional<Fullscreen::SFullscreenMode> requestedFSState;
     if (m_wantsInitialFullscreen || (m_isX11 && m_xwaylandSurface->m_fullscreen))
         requestedClientFSMode = Fullscreen::FSMODE_FULLSCREEN;
+    else if (m_wantsInitialMaximize)
+        requestedClientFSMode = Fullscreen::FSMODE_MAXIMIZED;
     MONITORID requestedFSMonitor = m_wantsInitialFullscreenMonitor;
 
     auto      setStaticProps = [&]() {
