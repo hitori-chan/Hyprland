@@ -292,6 +292,7 @@ void CWindowTarget::setFloating(bool x) {
     m_window->m_pinned     = false;
 
     m_window->m_ruleApplicator->propertiesChanged(Desktop::Rule::RULE_PROP_FLOATING);
+    m_window->updateClientMaximizedState();
 }
 
 Vector2D CWindowTarget::clampSizeForDesired(const Vector2D& size) const {

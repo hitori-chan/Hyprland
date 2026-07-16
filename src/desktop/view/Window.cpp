@@ -1777,6 +1777,17 @@ void CWindow::sendWindowSize(bool force) {
         m_pendingSizeAcks.emplace_back(m_xdgSurface->m_toplevel->setSize(REPORTSIZE), REPORTSIZE.floor());
 }
 
+void CWindow::updateClientMaximizedState() {
+    if (m_isX11 || !m_xdgSurface || !m_xdgSurface->m_toplevel)
+        return;
+
+    // tiled windows are told they're maximized so they don't draw CSD;
+    // floating windows must get their real state — a client never told it
+    // left maximized (notably GTK) stays in maximized mode and stops
+    // tracking its normal geometry entirely.
+    m_xdgSurface->m_toplevel->setMaximized(!m_isFloating || Fullscreen::controller()->getFullscreenModes(m_self.lock()).client == Fullscreen::FSMODE_MAXIMIZED);
+}
+
 void CWindow::requestClientSize() {
     if (m_isX11 || !m_xdgSurface || !m_xdgSurface->m_toplevel)
         return;
@@ -2528,6 +2539,8 @@ void CWindow::mapWindow() {
         else if (requestedInternalFSMode.has_value() || requestedClientFSMode.has_value())
             Fullscreen::controller()->setFullscreenMode(m_self.lock(), requestedInternalFSMode, requestedClientFSMode, wasFullscreenLayoutHandled);
     }
+
+    updateClientMaximizedState();
 
     // recheck idle inhibitors
     g_pInputManager->recheckIdleInhibitorStatus();

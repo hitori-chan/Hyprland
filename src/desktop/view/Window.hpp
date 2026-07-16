@@ -423,6 +423,7 @@ namespace Desktop::View {
         void                              updateX11SurfaceScale();
         void                              sendWindowSize(bool force = false);
         void                              requestClientSize();
+        void                              updateClientMaximizedState();
         NContentType::eContentType        getContentType();
         void                              setContentType(NContentType::eContentType contentType);
         void                              deactivateGroupMembers();
