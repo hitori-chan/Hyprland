@@ -526,10 +526,8 @@ CXDGSurfaceResource::CXDGSurfaceResource(SP<CXdgSurface> resource_, SP<CXDGWMBas
         }
 
         if (m_surface->m_current.texture && !m_mapped) {
-            // this forces apps to not draw CSD.
-            if (m_toplevel)
-                m_toplevel->setMaximized(true);
-
+            // the CSD-suppressing maximized state is set per window in
+            // mapWindow, once tiled/floating is known
             m_mapped = true;
             m_surface->map();
             m_events.map.emit();
