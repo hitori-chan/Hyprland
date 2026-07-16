@@ -13,7 +13,7 @@
 using namespace Layout;
 using namespace Layout::Floating;
 
-constexpr const Vector2D DEFAULT_SIZE = {640, 400};
+constexpr const Vector2D DEFAULT_SIZE = FLOATING_DEFAULT_SIZE;
 
 //
 void CDefaultFloatingAlgorithm::newTarget(SP<ITarget> target) {
@@ -248,6 +248,14 @@ void CDefaultFloatingAlgorithm::moveTargetInDirection(SP<ITarget> t, Math::eDire
 }
 
 void CDefaultFloatingAlgorithm::recenter(SP<ITarget> t) {
+    if (respawnIfBornFullscreen(t)) {
+        // don't record the box while the client's size answer is pending: it
+        // still holds the fullscreen geometry
+        if (!(t->window() && t->window()->m_sizeFromClientSerial))
+            updateTarget(t);
+        return;
+    }
+
     if (!m_datas.contains(t)) {
         IFloatingAlgorithm::recenter(t);
         return;

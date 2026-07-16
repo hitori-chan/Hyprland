@@ -127,8 +127,16 @@ void IFullscreenHandler::setTargetFullscreenModeInternal(const SP<Layout::ITarge
 
     const auto ITR = m_fsTargets.find(target);
 
-    if (target->window() && target->window()->m_isFloating && mode != FSMODE_NONE && !isFullscreen(target))
+    if (target->window() && target->window()->m_isFloating && mode != FSMODE_NONE && !isFullscreen(target)) {
+        // entering fullscreen while the client has never stated a usable
+        // windowed geometry (e.g. GTK apps starting maximized map with a 1x1
+        // placeholder, then request the mode pre- OR post-map): whatever
+        // floating size is on record is not a real frame — nothing to restore.
+        if (!target->desiredGeometry())
+            target->window()->m_bornFullscreen = true;
+
         target->rememberFloatingSize(target->position().size());
+    }
 
     if (mode == FSMODE_NONE) {
         if (ITR != m_fsTargets.end())

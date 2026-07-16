@@ -60,6 +60,7 @@
 #include "../../managers/KeybindManager.hpp"
 #include "../../managers/fullscreen/FullscreenController.hpp"
 #include "../../layout/algorithm/Algorithm.hpp"
+#include "../../layout/algorithm/FloatingAlgorithm.hpp"
 #include "../../layout/space/Space.hpp"
 #include "../../layout/LayoutManager.hpp"
 #include "../../layout/target/WindowTarget.hpp"
@@ -1515,6 +1516,13 @@ std::string CWindow::fetchClass() {
 }
 
 void CWindow::onAck(uint32_t serial) {
+    if (m_sizeFromClientSerial && serial >= m_sizeFromClientSerial) {
+        // the client acked our 0x0 configure: its next commit carries the size
+        // it chose for itself.
+        m_sizeFromClientAcked = true;
+        return;
+    }
+
     const auto SERIAL = std::ranges::find_if(m_pendingSizeAcks | std::views::reverse, [serial](const auto& e) { return e.first <= serial; });
 
     if (SERIAL == m_pendingSizeAcks.rend())
@@ -1746,6 +1754,19 @@ void CWindow::sendWindowSize(bool force) {
     if (!force && m_pendingReportedSize == REPORTSIZE && (m_reportedPosition == REPORTPOS || !m_isX11))
         return;
 
+    // while the client owns the size choice, don't dictate one: keep the
+    // configure at 0x0 until its answering commit is adopted. An interactive
+    // drag takes the ownership back.
+    if (m_sizeFromClientSerial && !m_isX11 && m_isFloating && m_xdgSurface && m_xdgSurface->m_toplevel && !Fullscreen::controller()->isFullscreen(m_self.lock())) {
+        if (g_layoutManager->dragController()->target() == layoutTarget())
+            m_sizeFromClientSerial = 0;
+        else {
+            m_pendingReportedSize  = REPORTSIZE;
+            m_sizeFromClientSerial = m_xdgSurface->m_toplevel->setSize({});
+            return;
+        }
+    }
+
     m_reportedPosition    = REPORTPOS;
     m_pendingReportedSize = REPORTSIZE;
     updateX11SurfaceScale();
@@ -1754,6 +1775,19 @@ void CWindow::sendWindowSize(bool force) {
         m_xwaylandSurface->configure({REPORTPOS, REPORTSIZE});
     else if (m_xdgSurface && m_xdgSurface->m_toplevel)
         m_pendingSizeAcks.emplace_back(m_xdgSurface->m_toplevel->setSize(REPORTSIZE), REPORTSIZE.floor());
+}
+
+void CWindow::requestClientSize() {
+    if (m_isX11 || !m_xdgSurface || !m_xdgSurface->m_toplevel)
+        return;
+
+    // configures the compositor sent before this are obsolete: their acks
+    // must not overwrite the size the client is about to choose.
+    m_pendingSizeAcks.clear();
+    m_pendingSizeAck.reset();
+
+    m_sizeFromClientAcked  = false;
+    m_sizeFromClientSerial = m_xdgSurface->m_toplevel->setSize({});
 }
 
 NContentType::eContentType CWindow::getContentType() {
@@ -2745,6 +2779,29 @@ void CWindow::commitWindow() {
     if (!m_isX11 && !Fullscreen::controller()->isFullscreen(m_self.lock()) && m_isFloating) {
         const auto MINSIZE = m_xdgSurface->m_toplevel->layoutMinSize();
         const auto MAXSIZE = m_xdgSurface->m_toplevel->layoutMaxSize();
+
+        if (m_sizeFromClientSerial && m_sizeFromClientAcked) {
+            // the client answered our 0x0 configure: adopt the size it chose,
+            // keeping the window centered where it was.
+            const auto GEOM = g_pXWaylandManager->getGeometryForWindow(m_self.lock());
+            auto       size = GEOM.size().x > 5 && GEOM.size().y > 5 ? GEOM.size() : m_wlSurface->resource()->m_current.size;
+
+            if (size.x > 5 && size.y > 5) {
+                m_sizeFromClientSerial = 0;
+                m_sizeFromClientAcked  = false;
+
+                // an answer pinned at the client's own minimum (min != max, so
+                // not a fixed-size window) means it has no real opinion — GTK's
+                // normal-size memory doesn't survive a born-maximized startup.
+                // Give it the fresh-spawn size instead.
+                if (size.x <= MINSIZE.x + 1 && size.y <= MINSIZE.y + 1 && MINSIZE != MAXSIZE)
+                    size = Layout::FLOATING_DEFAULT_SIZE;
+
+                const auto CENTER = m_realPosition->goal() + m_realSize->goal() / 2.F;
+                g_layoutManager->setTargetGeom(CBox{CENTER - size / 2.F, size}, layoutTarget());
+                layoutTarget()->rememberFloatingSize(size);
+            }
+        }
 
         if (clampWindowSize(MINSIZE, MAXSIZE > Vector2D{1, 1} ? std::optional<Vector2D>{MAXSIZE} : std::nullopt))
             g_pHyprRenderer->damageWindow(m_self.lock());

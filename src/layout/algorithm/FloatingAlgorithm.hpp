@@ -10,6 +10,8 @@ namespace Layout {
     class ITarget;
     class CAlgorithm;
 
+    constexpr Vector2D FLOATING_DEFAULT_SIZE = {640, 400};
+
     class IFloatingAlgorithm : public IModeAlgorithm {
       public:
         virtual ~IFloatingAlgorithm() = default;
@@ -26,6 +28,10 @@ namespace Layout {
 
       protected:
         IFloatingAlgorithm() = default;
+
+        // a window mapped straight into fullscreen has no windowed geometry to
+        // restore to: place it like a fresh spawn instead. Returns true if handled.
+        bool respawnIfBornFullscreen(SP<ITarget> t);
 
         friend class Layout::CAlgorithm;
     };
