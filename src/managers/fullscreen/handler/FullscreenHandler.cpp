@@ -127,8 +127,28 @@ void IFullscreenHandler::setTargetFullscreenModeInternal(const SP<Layout::ITarge
 
     const auto ITR = m_fsTargets.find(target);
 
-    if (target->window() && target->window()->m_isFloating && mode != FSMODE_NONE && !isFullscreen(target))
-        target->rememberFloatingSize(target->position().size());
+    if (target->window() && target->window()->m_isFloating && mode != FSMODE_NONE && !isFullscreen(target)) {
+        // entering fullscreen while the client has never stated a usable
+        // windowed geometry NOR presented a real windowed frame (e.g. GTK
+        // apps starting maximized map with a 1x1 placeholder, then request
+        // the mode pre- OR post-map): whatever floating size is on record is
+        // not a real frame — nothing to restore. An established window doing
+        // a fullscreen round-trip keeps its remembered box instead.
+        if (!target->desiredGeometry() && !target->window()->m_everWindowed)
+            target->window()->m_bornFullscreen = true;
+
+        if (!target->window()->m_sizeFromClientSerial)
+            target->rememberFloatingSize(target->position().size());
+        else {
+            // re-entering fullscreen voids an in-flight size grant: fullscreen
+            // configures carry real sizes (the 0x0 hold skips fullscreen), and
+            // a leftover ack would make the NEXT exit adopt a stale
+            // fullscreen-size frame as the floating box. The current box is
+            // no real frame either — nothing to remember.
+            target->window()->m_sizeFromClientSerial = 0;
+            target->window()->m_sizeFromClientAcked  = false;
+        }
+    }
 
     if (mode == FSMODE_NONE) {
         if (ITR != m_fsTargets.end())

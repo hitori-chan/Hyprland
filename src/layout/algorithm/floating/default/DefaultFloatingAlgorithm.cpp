@@ -13,8 +13,6 @@
 using namespace Layout;
 using namespace Layout::Floating;
 
-constexpr const Vector2D DEFAULT_SIZE = {640, 400};
-
 //
 void CDefaultFloatingAlgorithm::newTarget(SP<ITarget> target) {
     const auto WORK_AREA    = m_parent->space()->workArea(true);
@@ -33,7 +31,7 @@ void CDefaultFloatingAlgorithm::newTarget(SP<ITarget> target) {
             }
             case GEOMETRY_NO_DESIRED: {
                 // add a default geom
-                windowGeometry = CBox{WORK_AREA.middle() - DEFAULT_SIZE / 2.F, DEFAULT_SIZE};
+                windowGeometry = CBox{WORK_AREA.middle() - FLOATING_DEFAULT_SIZE / 2.F, FLOATING_DEFAULT_SIZE};
                 break;
             }
         }
@@ -50,7 +48,7 @@ void CDefaultFloatingAlgorithm::newTarget(SP<ITarget> target) {
         const auto WINDOW = target->window();
 
         // set this here so that expressions can use it. This could be wrong of course.
-        WINDOW->sizeAnimation()->setValueAndWarp(DESIRED_GEOM ? DESIRED_GEOM->size : DEFAULT_SIZE);
+        WINDOW->sizeAnimation()->setValueAndWarp(DESIRED_GEOM ? DESIRED_GEOM->size : FLOATING_DEFAULT_SIZE);
 
         if (WINDOW->m_ruleApplicator->static_.size) {
             const auto COMPUTED = WINDOW->calculateExpression(*WINDOW->m_ruleApplicator->static_.size);
@@ -145,7 +143,7 @@ void CDefaultFloatingAlgorithm::movedTarget(SP<ITarget> target, std::optional<Ve
 
     if (LAST_SIZE.x < 5 || LAST_SIZE.y < 5) {
         const auto DESIRED = target->desiredGeometry();
-        LAST_SIZE          = DESIRED ? DESIRED->size : DEFAULT_SIZE;
+        LAST_SIZE          = DESIRED ? DESIRED->size : FLOATING_DEFAULT_SIZE;
     }
 
     if (target->wasTiling()) {
@@ -248,6 +246,14 @@ void CDefaultFloatingAlgorithm::moveTargetInDirection(SP<ITarget> t, Math::eDire
 }
 
 void CDefaultFloatingAlgorithm::recenter(SP<ITarget> t) {
+    if (respawnIfBornFullscreen(t)) {
+        // don't record the box while the client's size answer is pending: it
+        // still holds the fullscreen geometry
+        if (!(t->window() && t->window()->m_sizeFromClientSerial))
+            updateTarget(t);
+        return;
+    }
+
     if (!m_datas.contains(t)) {
         IFloatingAlgorithm::recenter(t);
         return;
