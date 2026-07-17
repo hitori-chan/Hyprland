@@ -998,9 +998,15 @@ static int hlConfig(lua_State* L) {
             if (it == self->m_configValues.end() && lua_istable(L, -1))
                 walk(fullKey, lua_gettop(L));
             else {
-                if (it == self->m_configValues.end())
-                    self->addError(std::format("{}: unknown config key '{}'", sourceInfo, fullKey));
-                else {
+                if (it == self->m_configValues.end()) {
+                    // plugin values legitimately precede their plugin: loading
+                    // it registers the keys and reparses the config, which is
+                    // when they apply (legacy hyprlang semantics). Erroring
+                    // here flashes the overlay between launch and the
+                    // autostart's plugin load.
+                    if (!fullKey.starts_with("plugin."))
+                        self->addError(std::format("{}: unknown config key '{}'", sourceInfo, fullKey));
+                } else {
                     const auto err = it->second->parse(L);
                     if (err.errorCode != PARSE_ERROR_OK)
                         self->addError(std::format("{}: error setting '{}': {}", sourceInfo, it->first, err.message));
