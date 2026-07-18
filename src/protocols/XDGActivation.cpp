@@ -75,6 +75,8 @@ void CXDGActivationProtocol::bindManager(wl_client* client, void* data, uint32_t
         }
 
         // remove token. It's been now spent.
+        if (!TOKEN->client) // compositor-minted: no owning resource ever reaps its TokenManager entry
+            g_pTokenManager->removeToken(g_pTokenManager->getToken(TOKEN->token));
         m_sentTokens.erase(TOKEN);
 
         SP<CWLSurfaceResource> surf    = CWLSurfaceResource::fromResource(surface);
@@ -87,6 +89,32 @@ void CXDGActivationProtocol::bindManager(wl_client* client, void* data, uint32_t
 
         PWINDOW->activate();
     });
+}
+
+std::string CXDGActivationProtocol::mintToken() {
+    // minutes, not the protocol path's months: a minted token is spent by the
+    // very next activate (a notification click), and an unspent one has no
+    // owning resource whose death would reap the TokenManager entry
+    const auto TOKEN = g_pTokenManager->registerNewToken({}, std::chrono::minutes{2});
+
+    LOGM(Log::DEBUG, "minted compositor-side xdg-activation token {}", TOKEN);
+
+    m_sentTokens.push_back({TOKEN, nullptr});
+
+    auto count = std::ranges::count_if(m_sentTokens, [](const auto& other) { return other.client == nullptr; });
+
+    if UNLIKELY (count > 10) {
+        // remove first token. Too many, dear compositor.
+        for (auto i = m_sentTokens.begin(); i != m_sentTokens.end(); ++i) {
+            if (i->client == nullptr) {
+                g_pTokenManager->removeToken(g_pTokenManager->getToken(i->token));
+                m_sentTokens.erase(i);
+                break;
+            }
+        }
+    }
+
+    return TOKEN;
 }
 
 void CXDGActivationProtocol::onManagerResourceDestroy(wl_resource* res) {
