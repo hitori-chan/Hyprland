@@ -30,6 +30,12 @@ class CXDGActivationProtocol : public IWaylandProtocol {
 
     virtual void bindManager(wl_client* client, void* data, uint32_t ver, uint32_t id);
 
+    // mint a token on the compositor's behalf: registered like a
+    // client-requested one, honored once by activate(). For in-compositor
+    // requesters that must hand a token to a foreign client, e.g. a
+    // notification daemon's ActivationToken signal (fdo notifications 1.3).
+    std::string mintToken();
+
   private:
     void onManagerResourceDestroy(wl_resource* res);
     void destroyToken(CXDGActivationToken* pointer);
