@@ -1,4 +1,5 @@
 #include "DataState.hpp"
+#include <algorithm>
 #include <sys/stat.h>
 #include <toml++/toml.hpp>
 #include <print>
@@ -111,7 +112,10 @@ void DataState::addNewPluginRepo(const SPluginRepository& repo) {
         DATA.emplace(p.name, toml::table{
             {"filename", filename},
             {"enabled", p.enabled},
-            {"failed", p.failed}
+            {"failed", p.failed},
+            // the table serializes sorted; this carries the manifest's load
+            // order across the store round-trip
+            {"priority", (int64_t)(&p - repo.plugins.data())}
         });
     }
     // clang-format on
@@ -242,8 +246,12 @@ std::vector<SPluginRepository> DataState::getAllRepositories() {
             const auto FAILED   = STATE[key]["failed"].value_or(false);
             const auto FILENAME = STATE[key]["filename"].value_or("");
 
-            repo.plugins.push_back(SPlugin{std::string{key.str()}, FILENAME, ENABLED, FAILED});
+            const auto PRIORITY = STATE[key]["priority"].value_or((int64_t)INT64_MAX);
+            repo.plugins.push_back(SPlugin{std::string{key.str()}, FILENAME, ENABLED, FAILED, (size_t)PRIORITY});
         }
+
+        // legacy states carry no priority and stay alphabetical
+        std::ranges::stable_sort(repo.plugins, [](const auto& a, const auto& b) { return a.priority < b.priority; });
 
         repos.push_back(repo);
     }
