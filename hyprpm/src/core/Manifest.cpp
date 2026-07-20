@@ -1,6 +1,7 @@
 #include "Manifest.hpp"
 #include <toml++/toml.hpp>
 #include <algorithm>
+#include <fstream>
 
 // Alphanumerics and -_ allowed for plugin names. No magic names.
 // [A-Za-z0-9\-_]*
@@ -127,4 +128,15 @@ CManifest::CManifest(const eManifestType type, const std::string& path) {
         // ???
         m_good = false;
     }
+
+    // toml tables iterate sorted, but the manifest's section order is the
+    // author's intended plugin LOAD order (event listeners fire in load
+    // order) — restore it from the document text.
+    std::string raw;
+    if (std::ifstream f(path); f)
+        raw.assign(std::istreambuf_iterator<char>(f), std::istreambuf_iterator<char>());
+    std::ranges::stable_sort(m_plugins, [&raw](const auto& a, const auto& b) {
+        const auto PA = raw.find("[" + a.name + "]"), PB = raw.find("[" + b.name + "]");
+        return (PA == std::string::npos ? SIZE_MAX : PA) < (PB == std::string::npos ? SIZE_MAX : PB);
+    });
 }
