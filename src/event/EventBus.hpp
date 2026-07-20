@@ -77,6 +77,12 @@ namespace Event {
                 Event<PHLWINDOW>                        create;
                 Event<PHLWINDOW>                        open;
                 Event<PHLWINDOW>                        openEarly;
+                // initial commit of a to-be-floating xdg toplevel: the size
+                // the initial configure will carry (0x0 = client decides).
+                // A listener may fill it — the client sizes its first buffer
+                // from this one configure, so the window is BORN at the
+                // suggested size instead of being resized after map.
+                Event<PHLWINDOW, Vector2D&>             predictSize;
                 Event<PHLWINDOWREF>                     destroy;
                 Event<PHLWINDOW>                        close;
                 Event<PHLWINDOW>                        kill;

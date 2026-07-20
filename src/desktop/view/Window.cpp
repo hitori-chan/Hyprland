@@ -2779,13 +2779,18 @@ void CWindow::commitWindow() {
         // try to calculate static rules already for any floats
         m_ruleApplicator->readStaticRules(true);
 
-        const Vector2D predSize = !m_ruleApplicator->static_.floating.value_or(false) // no float rule
-                && !m_isFloating                                                      // not floating
-                && !parent()                                                          // no parents
-                && !g_pXWaylandManager->shouldBeFloated(m_self.lock(), true)          // should not be floated
-            ?
-            g_layoutManager->predictSizeForNewTiledTarget().value_or(Vector2D{}) :
-            Vector2D{};
+        const bool TILED = !m_ruleApplicator->static_.floating.value_or(false) // no float rule
+            && !m_isFloating                                                    // not floating
+            && !parent()                                                        // no parents
+            && !g_pXWaylandManager->shouldBeFloated(m_self.lock(), true);       // should not be floated
+
+        Vector2D   predSize = TILED ? g_layoutManager->predictSizeForNewTiledTarget().value_or(Vector2D{}) : Vector2D{};
+
+        // a floating window's initial configure otherwise carries 0x0 ("you
+        // decide"): let a listener suggest the size the window is born at.
+        // Toplevel state (app_id, min/max) is already current here.
+        if (!TILED)
+            Event::bus()->m_events.window.predictSize.emit(m_self.lock(), predSize);
 
         Log::logger->log(Log::DEBUG, "Layout predicts size {} for {}", predSize, m_self.lock());
 
