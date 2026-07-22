@@ -904,16 +904,13 @@ void CInputManager::processMouseDownNormal(const IPointer::SButtonEvent& e, SP<I
                     refocus();
             }
 
-            // if clicked on a floating window make it top
-            if (!g_pSeatManager->m_state.pointerFocus)
-                break;
-
-            auto HLSurf = Desktop::View::CWLSurface::fromResource(g_pSeatManager->m_state.pointerFocus.lock());
-
-            // pointerFocus can target a surface without a Desktop::View (e.g. IME popups), so view() may be null.
-            const auto PVIEW = HLSurf ? HLSurf->view() : nullptr;
-            if (PVIEW && PVIEW->type() == Desktop::View::VIEW_TYPE_WINDOW)
-                Desktop::windowState()->raise(dynamicPointerCast<Desktop::View::CWindow>(PVIEW));
+            // if clicked on a floating window make it top. Raise the window the
+            // press hit-tested to (w), not the seat's pointer focus: a map or
+            // unmap under a still cursor leaves the pointer focus stale, and
+            // raising that re-flags a window hidden under a fullscreen surface
+            // as allowed-over-fullscreen.
+            if (w && !m_lastFocusOnLS)
+                Desktop::windowState()->raise(w);
 
             break;
         }
