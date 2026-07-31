@@ -11,10 +11,13 @@ class CInputPopup {
   public:
     CInputPopup(SP<CInputMethodPopupV2> popup);
 
-    void                   damageEntire();
-    void                   damageSurface();
+    void damageEntire();
+    void damageSurface();
 
-    bool                   isVecInPopup(const Vector2D& point);
+    bool isVecInPopup(const Vector2D& point);
+
+    // If a popup's base surface is not focused, do not show the popup.
+    bool shouldBeRendered();
 
     CBox                   globalBox();
     SP<CWLSurfaceResource> getSurface();

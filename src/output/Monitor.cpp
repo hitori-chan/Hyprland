@@ -1938,6 +1938,14 @@ void CMonitor::recheckSolitary() {
     m_solitaryClient = Fullscreen::controller()->getFullscreenWindow(m_self.lock());
 }
 
+void CMonitor::requestFullRender() {
+    // Keep scanout and solitary transitions inside the monitor owner. Plugins
+    // and other render-stage overlays must not reach into these state fields.
+    m_solitaryClient.reset();
+    if (!m_lastScanout.expired() || m_directScanoutIsActive)
+        handleDSleave();
+}
+
 uint8_t CMonitor::isTearingBlocked(bool full) {
     uint8_t     reasons = 0;
 

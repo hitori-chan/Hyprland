@@ -279,6 +279,7 @@ namespace Monitor {
         void         scheduleDone();
         uint32_t     isSolitaryBlocked(bool full = false);
         void         recheckSolitary();
+        void         requestFullRender();
         uint8_t      isTearingBlocked(bool full = false);
         void         updateSurfaceScaleTransformDetails();
         bool         updateTearing();

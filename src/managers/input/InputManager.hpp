@@ -119,6 +119,10 @@ class CInputManager {
     bool               isConstrained();
     bool               isLocked();
     bool               hasHeldButtons();
+    bool               inputCaptureActive();
+    // Resolve the current native pointer stack without changing focus. Plugin
+    // input listeners use this when motion was intentionally intercepted.
+    bool               pointerHitIsNativeSurface();
 
     Vector2D           getMouseCoordsInternal();
     void               refocus(std::optional<Vector2D> overridePos = std::nullopt);
