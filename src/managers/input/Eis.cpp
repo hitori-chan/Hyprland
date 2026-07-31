@@ -119,12 +119,24 @@ int CEis::onEvent(eis_event* e) {
         case EIS_EVENT_CLIENT_DISCONNECT:
             eisClient = eis_event_get_client(e);
             Log::logger->log(Log::INFO, "[EIS] {} disconnected", getClientName(eisClient));
+
+            if (eisClient != m_client.m_handle) {
+                Log::logger->log(Log::WARN, "[EIS] Ignoring disconnect for an unowned client {}", getClientName(eisClient));
+                break;
+            }
+
             eis_client_disconnect(eisClient);
 
-            eis_seat_unref(m_client.m_seat);
             clearPointer();
             clearKeyboard();
+            if (m_client.m_seat)
+                eis_seat_unref(m_client.m_seat);
+            m_client.m_seat   = nullptr;
             m_client.m_handle = nullptr;
+            m_emulationSequence.reset();
+
+            if (m_onClientDisconnect)
+                m_onClientDisconnect();
             break;
         case EIS_EVENT_SEAT_BIND:
             Log::logger->log(Log::INFO, "[EIS] Binding seats...");
@@ -180,6 +192,9 @@ void CEis::ensurePointer() {
     eis_device_add(pointer);
     eis_device_resume(pointer);
 
+    if (m_emulationSequence)
+        eis_device_start_emulating(pointer, *m_emulationSequence);
+
     m_client.m_pointer = pointer;
 }
 
@@ -208,6 +223,9 @@ void CEis::ensureKeyboard() {
 
     eis_device_add(keyboard);
     eis_device_resume(keyboard);
+
+    if (m_emulationSequence)
+        eis_device_start_emulating(keyboard, *m_emulationSequence);
 
     m_client.m_keyboard = keyboard;
 }
@@ -256,11 +274,17 @@ int CEis::getFileDescriptor() {
 void CEis::startEmulating(int sequence) {
     Log::logger->log(Log::INFO, "[EIS] Start Emulating");
 
+    m_emulationSequence = sequence;
+
     if (m_client.m_pointer)
         eis_device_start_emulating(m_client.m_pointer, sequence);
 
     if (m_client.m_keyboard)
         eis_device_start_emulating(m_client.m_keyboard, sequence);
+}
+
+void CEis::setOnClientDisconnect(std::function<void()> callback) {
+    m_onClientDisconnect = std::move(callback);
 }
 
 void CEis::stopEmulating() {
@@ -271,6 +295,8 @@ void CEis::stopEmulating() {
 
     if (m_client.m_keyboard)
         eis_device_stop_emulating(m_client.m_keyboard);
+
+    m_emulationSequence.reset();
 }
 
 void CEis::resetKeyboard() {

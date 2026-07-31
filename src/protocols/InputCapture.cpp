@@ -42,12 +42,15 @@ CInputCaptureResource::CInputCaptureResource(SP<CHyprlandInputCaptureV1> resourc
     m_resource->setClearBarriers([this](CHyprlandInputCaptureV1* r) { onClearBarriers(); });
 
     m_eis = makeUnique<CEis>(std::format("eis-{}", eisCounter++));
+    m_eis->setOnClientDisconnect([this] { onEisDisconnect(); });
 
     const int EISFD = m_eis->getFileDescriptor();
     if (EISFD >= 0)
         m_resource->sendEisFd(EISFD);
-    else
+    else {
         Log::logger->log(Log::ERR, "[input-capture]({}) failed to create EIS client fd", m_sessionId.c_str());
+        m_status = CLIENT_STATUS_STOPPED;
+    }
 
     m_keyRepeatTimer = makeShared<CEventLoopTimer>(
         std::nullopt,
@@ -74,6 +77,10 @@ CInputCaptureResource::CInputCaptureResource(SP<CHyprlandInputCaptureV1> resourc
 }
 
 CInputCaptureResource::~CInputCaptureResource() {
+    // The monitor signal outlives Wayland session resources during a config
+    // reload. Detach before forceRelease() or clearBarriers() can trigger any
+    // state changes, so no callback can revisit this object after destruction.
+    m_monitorCallback.reset();
     stopKeyRepeat();
 
     if (m_keyRepeatTimer && g_pEventLoopManager) {
@@ -97,6 +104,9 @@ bool CInputCaptureResource::good() {
 }
 
 void CInputCaptureResource::onEnable() {
+    if (m_status == CLIENT_STATUS_STOPPED)
+        return;
+
     Log::logger->log(Log::INFO, "[input-capture]({}) session enabled", m_sessionId.c_str());
     m_status = CLIENT_STATUS_ENABLED;
 }
@@ -211,6 +221,18 @@ void CInputCaptureResource::onClearBarriers() {
     PROTO::inputCapture->clearBarriers(m_sessionId);
 }
 
+void CInputCaptureResource::onEisDisconnect() {
+    if (m_status == CLIENT_STATUS_STOPPED)
+        return;
+
+    Log::logger->log(Log::WARN, "[input-capture]({}) EIS receiver disconnected; disabling session", m_sessionId.c_str());
+    if (m_status == CLIENT_STATUS_ACTIVATED)
+        deactivate();
+    stopKeyRepeat();
+    m_status = CLIENT_STATUS_STOPPED;
+    m_resource->sendDisabled();
+}
+
 bool CInputCaptureResource::activate(double x, double y, uint32_t borderId) {
     if (m_status != CLIENT_STATUS_ENABLED)
         return false;
@@ -307,15 +329,33 @@ void CInputCaptureResource::frame() {
     m_eis->sendPointerFrame();
 }
 
-static bool isLineIntersect(double p0X, double p0Y, double p1X, double p1Y, double p2X, double p2Y, double p3X, double p3Y) {
-    float s1X = p1X - p0X;
-    float s1Y = p1Y - p0Y;
-    float s2X = p3X - p2X;
-    float s2Y = p3Y - p2Y;
-    float s   = (-s1Y * (p0X - p2X) + s1X * (p0Y - p2Y)) / (-s2X * s1Y + s1X * s2Y);
-    float t   = (s2X * (p0Y - p2Y) - s2Y * (p0X - p2X)) / (-s2X * s1Y + s1X * s2Y);
+static bool isLineIntersect(double barrierX1, double barrierY1, double barrierX2, double barrierY2, double currentX, double currentY, double previousX, double previousY) {
+    // Barriers are axis-aligned by protocol. Test the side transition
+    // directly: the old slope/intersection formula divided by zero for a
+    // parallel or collinear motion segment and used float intermediates for
+    // compositor-space doubles.
+    const auto crossed = [](double from, double to, double edge) {
+        return (from < edge && to >= edge) || (from > edge && to <= edge);
+    };
+    const auto overlaps = [](double value, double a, double b) {
+        return value >= std::min(a, b) && value <= std::max(a, b);
+    };
 
-    return s >= 0 && s <= 1 && t >= 0 && t <= 1;
+    if (barrierX1 == barrierX2) {
+        if (!crossed(previousX, currentX, barrierX1))
+            return false;
+        return overlaps(currentY, barrierY1, barrierY2) || overlaps(previousY, barrierY1, barrierY2) ||
+            (std::min(currentY, previousY) <= std::max(barrierY1, barrierY2) && std::max(currentY, previousY) >= std::min(barrierY1, barrierY2));
+    }
+
+    if (barrierY1 == barrierY2) {
+        if (!crossed(previousY, currentY, barrierY1))
+            return false;
+        return overlaps(currentX, barrierX1, barrierX2) || overlaps(previousX, barrierX1, barrierX2) ||
+            (std::min(currentX, previousX) <= std::max(barrierX1, barrierX2) && std::max(currentX, previousX) >= std::min(barrierX1, barrierX2));
+    }
+
+    return false;
 }
 
 std::optional<CInputCaptureProtocol::SBarrier> CInputCaptureProtocol::isColliding(double px, double py, double nx, double ny) {
@@ -375,15 +415,20 @@ void CInputCaptureProtocol::motion(const Vector2D& absolutePosition, const Vecto
     auto [x, y]   = absolutePosition;
     auto [dx, dy] = delta;
 
-    auto matched = isColliding(x, y, x - dx, y - dy);
-    if (matched.has_value()) {
-        auto session = getSession(matched->sessionId);
-        if (!session.has_value()) {
-            Log::logger->log(Log::ERR, "Cannot find session {} for triggering barrier {}", matched.value().id, matched.value().sessionId);
-            return;
+    // Only one session owns the physical stream. While active, keep routing
+    // motion to it; a second enabled barrier must not replace a live EIS
+    // sequence and strand the first receiver.
+    if (!active) {
+        auto matched = isColliding(x, y, x - dx, y - dy);
+        if (matched.has_value()) {
+            auto session = getSession(matched->sessionId);
+            if (!session.has_value()) {
+                Log::logger->log(Log::ERR, "Cannot find session {} for triggering barrier {}", matched.value().id, matched.value().sessionId);
+                return;
+            }
+            if (session.value()->activate(x, y, matched.value().id))
+                active = session.value();
         }
-        if (session.value()->activate(x, y, matched.value().id))
-            active = session.value();
     }
 
     if (active)
