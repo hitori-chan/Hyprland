@@ -226,11 +226,27 @@ void CInputCaptureResource::onEisDisconnect() {
         return;
 
     Log::logger->log(Log::WARN, "[input-capture]({}) EIS receiver disconnected; disabling session", m_sessionId.c_str());
-    if (m_status == CLIENT_STATUS_ACTIVATED)
-        deactivate();
+    if (m_status == CLIENT_STATUS_ACTIVATED) {
+        m_status = CLIENT_STATUS_ENABLED;
+        m_eis->stopEmulating();
+        if (good())
+            m_resource->sendDeactivated(m_activationId);
+    }
     stopKeyRepeat();
     m_status = CLIENT_STATUS_STOPPED;
-    m_resource->sendDisabled();
+    if (good())
+        m_resource->sendDisabled();
+
+    // The Wayland resource may already have removed this session from
+    // m_Sessions, leaving active as the last owner. Do not clear that owner
+    // while CEis::onEvent() is still using its containing object; the idle
+    // callback runs after the EIS event has been fully consumed.
+    const auto SESSION = m_sessionId;
+    if (g_pEventLoopManager)
+        g_pEventLoopManager->doLater([SESSION] {
+            if (PROTO::inputCapture)
+                PROTO::inputCapture->release(SESSION);
+        });
 }
 
 bool CInputCaptureResource::activate(double x, double y, uint32_t borderId) {
@@ -259,9 +275,9 @@ void CInputCaptureResource::deactivate() {
     stopKeyRepeat();
     m_status = CLIENT_STATUS_ENABLED;
     m_eis->stopEmulating();
+    if (good())
+        m_resource->sendDeactivated(m_activationId);
     PROTO::inputCapture->release();
-
-    m_resource->sendDeactivated(m_activationId);
 }
 
 void CInputCaptureResource::disable() {
@@ -454,6 +470,11 @@ void CInputCaptureProtocol::clearBarriers(std::string sessionId) {
 
 void CInputCaptureProtocol::release() {
     active = nullptr;
+}
+
+void CInputCaptureProtocol::release(const std::string& sessionId) {
+    if (active && active->m_sessionId == sessionId)
+        active = nullptr;
 }
 
 void CInputCaptureProtocol::forceRelease() {

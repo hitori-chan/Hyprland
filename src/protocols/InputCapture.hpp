@@ -105,6 +105,7 @@ class CInputCaptureProtocol : public IWaylandProtocol {
     void forceRelease();
 
     void release();
+    void release(const std::string& sessionId);
 
   private:
     std::vector<UP<CHyprlandInputCaptureManagerV1>> m_vManagers;
