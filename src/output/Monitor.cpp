@@ -105,6 +105,13 @@ CMonitor::~CMonitor() {
         g_pHyprRenderer->glBackend()->destroyMonitorResources(m_self);
 }
 
+void CMonitor::emitReservedChangedIfNeeded() {
+    if (m_lastAnnouncedReservedArea == m_reservedArea)
+        return;
+    m_lastAnnouncedReservedArea = m_reservedArea;
+    Event::bus()->m_events.monitor.reservedChanged.emit(m_self.lock());
+}
+
 void CMonitor::onConnect(bool noRule) {
     Event::bus()->m_events.monitor.preAdded.emit(m_self.lock());
     CScopeGuard x = {[]() { State::monitorLayoutController()->arrange(); }};

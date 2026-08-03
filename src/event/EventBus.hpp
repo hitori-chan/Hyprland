@@ -74,10 +74,10 @@ namespace Event {
             Event<> exit;
 
             struct {
-                Event<PHLWINDOW>                        create;
-                Event<PHLWINDOW>                        open;
-                Event<PHLWINDOW>                        openEarly;
-                Event<PHLWINDOW>                        openLate;
+                Event<PHLWINDOW> create;
+                Event<PHLWINDOW> open;
+                Event<PHLWINDOW> openEarly;
+                Event<PHLWINDOW> openLate;
                 // initial commit of a to-be-floating xdg toplevel: the size
                 // the initial configure will carry (0x0 = client decides).
                 // A listener may fill it — the client sizes its first buffer
@@ -172,6 +172,7 @@ namespace Event {
                 Event<PHLMONITOR> removed; // disconnected (disabled)
                 Event<PHLMONITOR> preCommit;
                 Event<PHLMONITOR> focused;
+                Event<PHLMONITOR> reservedChanged; // combined usable area changed
 
                 Event<>           layoutChanged;
             } monitor;

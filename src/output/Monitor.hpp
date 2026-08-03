@@ -351,6 +351,7 @@ namespace Monitor {
         uint32_t                                                    getPreferredReadFormat();
 
         bool                                                        needsCM();
+        void                                                        emitReservedChangedIfNeeded();
         /// Can do CM without shader (forDSmode ? check output image description : check workbuffer image description)
         bool                                                               canNoShaderCM(bool forDSmode = false);
         bool                                                               doesNoShaderCM();
@@ -401,7 +402,8 @@ namespace Monitor {
         void                    updateVCGTRamps();
         bool                    trySetFormat(std::span<const uint32_t> formats);
 
-        bool                    m_doneScheduled  = false;
+        bool                    m_doneScheduled = false;
+        Desktop::CReservedArea  m_lastAnnouncedReservedArea;
         bool                    m_vcgtRampsSet   = false;
         int                     m_modeRetryCount = 0;
         SP<CEventLoopTimer>     m_modeRetryTimer;
