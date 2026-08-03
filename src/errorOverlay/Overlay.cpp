@@ -56,6 +56,19 @@ UP<COverlay>& ErrorOverlay::overlay() {
     return p;
 }
 
+static void requestFocusedMonitorRender() {
+    if (!g_pHyprRenderer)
+        return;
+
+    const auto PMONITOR = Desktop::focusState()->monitor();
+    if (!PMONITOR)
+        return;
+
+    PMONITOR->requestFullRender();
+    g_pHyprRenderer->damageMonitor(PMONITOR);
+    PMONITOR->scheduleFrame();
+}
+
 COverlay::COverlay() {
     Animation::mgr()->createAnimation(0.f, m_fadeOpacity, Config::animationTree()->getAnimationPropertyConfig("fadeIn"), AVARDAMAGE_NONE);
 
@@ -89,6 +102,10 @@ void COverlay::queueCreate(std::string message, const Config::CGradientValueData
         m_queuedBorderGradient.reset(CHyprColor(1.0, 50.0 / 255.0, 50.0 / 255.0, 1.0));
     else
         m_queuedBorderGradient.updateColorsOk();
+
+    // Creation stays in draw(), where renderer resources are valid, but an
+    // idle output still needs damage to enter that render path.
+    requestFocusedMonitorRender();
 }
 
 void COverlay::queueError(std::string err) {
@@ -201,6 +218,9 @@ void COverlay::draw() {
             } else {
                 m_fadeOpacity->setConfig(Config::animationTree()->getAnimationPropertyConfig("fadeOut"));
                 *m_fadeOpacity = 0.f;
+                // A disabled animation reaches zero immediately and emits no
+                // animation tick, so schedule the frame that performs cleanup.
+                requestFocusedMonitorRender();
             }
         }
     }
@@ -255,14 +275,17 @@ void COverlay::draw() {
 }
 
 void COverlay::destroy() {
-    if (m_isCreated)
+    if (m_isCreated) {
         m_queuedDestroy = true;
-    else
+        requestFocusedMonitorRender();
+    } else
         m_queued = "";
 }
 
 bool COverlay::active() {
-    return m_isCreated;
+    // A queued overlay must block solitary rendering before draw() creates it;
+    // otherwise the solitary path skips draw() and the queue cannot advance.
+    return m_isCreated || !m_queued.empty();
 }
 
 float COverlay::height() {
