@@ -3,6 +3,7 @@
 #include "../layout/LayoutManager.hpp"
 #include "../desktop/view/Window.hpp"
 #include "render/pass/ClearPassElement.hpp"
+#include "../protocols/XDGShell.hpp"
 #include <hyprutils/memory/SharedPtr.hpp>
 #include <hyprutils/memory/UniquePtr.hpp>
 #include <hyprutils/utils/ScopeGuard.hpp>
@@ -78,6 +79,9 @@ void IElementRenderer::calculateUVForSurface(PHLWINDOW pWindow, SP<CWLSurfaceRes
             }
         }
 
+        const auto SOURCE_UV_END  = uvBR;
+        const auto SOURCE_UV_SPAN = uvBR - uvTL;
+
         if (projSize != Vector2D{} && fixMisalignedFSV1) {
             // instead of nearest_neighbor (we will repeat / skip)
             // just cut off / expand surface
@@ -114,33 +118,28 @@ void IElementRenderer::calculateUVForSurface(PHLWINDOW pWindow, SP<CWLSurfaceRes
             }
         }
 
-        m_renderData.primarySurfaceUVTopLeft     = uvTL;
-        m_renderData.primarySurfaceUVBottomRight = uvBR;
+        if (main && pWindow && pWindow->m_xdgSurface) {
+            const auto GEOMETRY     = pWindow->m_xdgSurface->m_current.geometry;
+            const auto SURFACE_SIZE = pSurface->m_current.size;
 
-        if (m_renderData.primarySurfaceUVTopLeft == Vector2D() && m_renderData.primarySurfaceUVBottomRight == Vector2D(1, 1)) {
-            // No special UV mods needed
-            m_renderData.primarySurfaceUVTopLeft     = Vector2D(-1, -1);
-            m_renderData.primarySurfaceUVBottomRight = Vector2D(-1, -1);
+            // The projected crop already has the configured window size. Move
+            // that crop to the xdg window-geometry origin so invisible CSD
+            // margins stay outside the compositor's border instead of pushing
+            // the visible client down and right.
+            if (GEOMETRY.w > 0 && GEOMETRY.h > 0 && SURFACE_SIZE.x > 0 && SURFACE_SIZE.y > 0) {
+                const Vector2D SHIFT = SOURCE_UV_SPAN * (GEOMETRY.pos() / SURFACE_SIZE);
+                constexpr double EPSILON = 0.00001;
+
+                if (SHIFT.x >= 0 && uvBR.x + SHIFT.x <= SOURCE_UV_END.x + EPSILON) {
+                    uvTL.x += SHIFT.x;
+                    uvBR.x += SHIFT.x;
+                }
+                if (SHIFT.y >= 0 && uvBR.y + SHIFT.y <= SOURCE_UV_END.y + EPSILON) {
+                    uvTL.y += SHIFT.y;
+                    uvBR.y += SHIFT.y;
+                }
+            }
         }
-
-        if (!main || !pWindow)
-            return;
-
-        // FIXME: this doesn't work. We always set MAXIMIZED anyways, so this doesn't need to work, but it's problematic.
-
-        // CBox geom = pWindow->m_xdgSurface->m_current.geometry;
-
-        // // Adjust UV based on the xdg_surface geometry
-        // if (geom.x != 0 || geom.y != 0 || geom.w != 0 || geom.h != 0) {
-        //     const auto XPERC = geom.x / pSurface->m_current.size.x;
-        //     const auto YPERC = geom.y / pSurface->m_current.size.y;
-        //     const auto WPERC = (geom.x + geom.w ? geom.w : pSurface->m_current.size.x) / pSurface->m_current.size.x;
-        //     const auto HPERC = (geom.y + geom.h ? geom.h : pSurface->m_current.size.y) / pSurface->m_current.size.y;
-
-        //     const auto TOADDTL = Vector2D(XPERC * (uvBR.x - uvTL.x), YPERC * (uvBR.y - uvTL.y));
-        //     uvBR               = uvBR - Vector2D((1.0 - WPERC) * (uvBR.x - uvTL.x), (1.0 - HPERC) * (uvBR.y - uvTL.y));
-        //     uvTL               = uvTL + TOADDTL;
-        // }
 
         m_renderData.primarySurfaceUVTopLeft     = uvTL;
         m_renderData.primarySurfaceUVBottomRight = uvBR;

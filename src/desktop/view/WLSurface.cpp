@@ -3,6 +3,7 @@
 #include "Window.hpp"
 #include "../../protocols/core/Compositor.hpp"
 #include "../../protocols/LayerShell.hpp"
+#include "../../protocols/XDGShell.hpp"
 #include "../../protocols/FractionalScale.hpp"
 #include "../../render/Renderer.hpp"
 
@@ -121,6 +122,12 @@ CRegion CWLSurface::computeDamage(const std::optional<CBox>& box) const {
             const auto WINDOW = dynamicPointerCast<CWindow>(m_view.lock());
             if (!WINDOW)
                 return {};
+
+            if (!WINDOW->m_isX11 && WINDOW->m_xdgSurface) {
+                const auto& GEOMETRY = WINDOW->m_xdgSurface->m_current.geometry;
+                if (GEOMETRY.w > 0 && GEOMETRY.h > 0)
+                    damage.translate(-GEOMETRY.pos());
+            }
 
             boxSize = boxSize * WINDOW->m_X11SurfaceScaledBy;
         }
