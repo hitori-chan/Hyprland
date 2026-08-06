@@ -86,38 +86,38 @@ class CInputManager {
     CInputManager();
     ~CInputManager();
 
-    void               onMouseMoved(IPointer::SMotionEvent);
-    void               onMouseWarp(IPointer::SMotionAbsoluteEvent);
-    void               onMouseButton(IPointer::SButtonEvent, SP<IPointer>);
-    void               onMouseWheel(IPointer::SAxisEvent, SP<IPointer> pointer = nullptr);
-    void               onPointerFrame();
-    void               onKeyboardKey(const IKeyboard::SKeyEvent&, SP<IKeyboard>);
-    void               onMouseFrame();
-    void               onKeyboardMod(SP<IKeyboard>);
+    void onMouseMoved(IPointer::SMotionEvent);
+    void onMouseWarp(IPointer::SMotionAbsoluteEvent);
+    void onMouseButton(IPointer::SButtonEvent, SP<IPointer>);
+    void onMouseWheel(IPointer::SAxisEvent, SP<IPointer> pointer = nullptr);
+    void onPointerFrame();
+    void onKeyboardKey(const IKeyboard::SKeyEvent&, SP<IKeyboard>);
+    void onMouseFrame();
+    void onKeyboardMod(SP<IKeyboard>);
 
-    void               newKeyboard(SP<IKeyboard>);
-    void               newKeyboard(SP<Aquamarine::IKeyboard>);
-    void               newVirtualKeyboard(SP<CVirtualKeyboardV1Resource>);
-    void               newMouse(SP<IPointer>);
-    void               newMouse(SP<Aquamarine::IPointer>);
-    void               newVirtualMouse(SP<CVirtualPointerV1Resource>);
-    void               newTouchDevice(SP<Aquamarine::ITouch>);
-    void               newSwitch(SP<Aquamarine::ISwitch>);
-    void               newTabletPad(SP<Aquamarine::ITabletPad>);
-    void               newTablet(SP<Aquamarine::ITablet>);
-    void               destroyTouchDevice(SP<ITouch>);
-    void               destroyKeyboard(SP<IKeyboard>);
-    void               destroyPointer(SP<IPointer>);
-    void               destroyTablet(SP<CTablet>);
-    void               destroyTabletTool(SP<CTabletTool>);
-    void               destroyTabletPad(SP<CTabletPad>);
-    void               destroySwitch(SSwitchDevice*);
+    void newKeyboard(SP<IKeyboard>);
+    void newKeyboard(SP<Aquamarine::IKeyboard>);
+    void newVirtualKeyboard(SP<CVirtualKeyboardV1Resource>);
+    void newMouse(SP<IPointer>);
+    void newMouse(SP<Aquamarine::IPointer>);
+    void newVirtualMouse(SP<CVirtualPointerV1Resource>);
+    void newTouchDevice(SP<Aquamarine::ITouch>);
+    void newSwitch(SP<Aquamarine::ISwitch>);
+    void newTabletPad(SP<Aquamarine::ITabletPad>);
+    void newTablet(SP<Aquamarine::ITablet>);
+    void destroyTouchDevice(SP<ITouch>);
+    void destroyKeyboard(SP<IKeyboard>);
+    void destroyPointer(SP<IPointer>);
+    void destroyTablet(SP<CTablet>);
+    void destroyTabletTool(SP<CTabletTool>);
+    void destroyTabletPad(SP<CTabletPad>);
+    void destroySwitch(SSwitchDevice*);
 
-    void               unconstrainMouse();
-    bool               isConstrained();
-    bool               isLocked();
-    bool               hasHeldButtons();
-    bool               inputCaptureActive();
+    void unconstrainMouse();
+    bool isConstrained();
+    bool isLocked();
+    bool hasHeldButtons();
+    bool inputCaptureActive();
     // Resolve the current native pointer stack without changing focus. Plugin
     // input listeners use this when motion was intentionally intercepted.
     bool               pointerHitIsNativeSurface();

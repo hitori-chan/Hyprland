@@ -127,7 +127,7 @@ void IElementRenderer::calculateUVForSurface(PHLWINDOW pWindow, SP<CWLSurfaceRes
             // margins stay outside the compositor's border instead of pushing
             // the visible client down and right.
             if (GEOMETRY.w > 0 && GEOMETRY.h > 0 && SURFACE_SIZE.x > 0 && SURFACE_SIZE.y > 0) {
-                const Vector2D SHIFT = SOURCE_UV_SPAN * (GEOMETRY.pos() / SURFACE_SIZE);
+                const Vector2D   SHIFT   = SOURCE_UV_SPAN * (GEOMETRY.pos() / SURFACE_SIZE);
                 constexpr double EPSILON = 0.00001;
 
                 if (SHIFT.x >= 0 && uvBR.x + SHIFT.x <= SOURCE_UV_END.x + EPSILON) {

@@ -764,7 +764,7 @@ bool CInputManager::pointerHitIsNativeSurface() {
     if (!State::monitorState())
         return false;
 
-    float      bestDist = 0.F;
+    float bestDist = 0.F;
     for (const auto& MON : State::monitorState()->monitors()) {
         const auto BOX = MON->logicalBox();
         if (BOX.containsPoint(POS)) {
@@ -781,7 +781,7 @@ bool CInputManager::pointerHitIsNativeSurface() {
     if (!PMONITOR)
         return false;
 
-    Vector2D surfaceCoords;
+    Vector2D   surfaceCoords;
 
     const auto PWORKSPACE = PMONITOR->m_activeSpecialWorkspace ? PMONITOR->m_activeSpecialWorkspace : PMONITOR->m_activeWorkspace;
     const bool HAS_EXCLUSIVE_FULLSCREEN =

@@ -276,8 +276,7 @@ SP<CWLSurfaceResource> CViewHitTester::windowSurfaceAt(const Vector2D& pos, PHLW
             geometryOffset = GEOMETRY.pos();
     }
 
-    auto [surf, local] = window->wlSurface()->resource()->at(pos - window->position(Desktop::View::IGeometric::GEOMETRIC_GOAL) + geometryOffset,
-                                                              true);
+    auto [surf, local] = window->wlSurface()->resource()->at(pos - window->position(Desktop::View::IGeometric::GEOMETRIC_GOAL) + geometryOffset, true);
     if (surf) {
         surfaceLocal = local;
         return surf;

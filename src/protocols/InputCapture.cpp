@@ -350,12 +350,8 @@ static bool isLineIntersect(double barrierX1, double barrierY1, double barrierX2
     // directly: the old slope/intersection formula divided by zero for a
     // parallel or collinear motion segment and used float intermediates for
     // compositor-space doubles.
-    const auto crossed = [](double from, double to, double edge) {
-        return (from < edge && to >= edge) || (from > edge && to <= edge);
-    };
-    const auto overlaps = [](double value, double a, double b) {
-        return value >= std::min(a, b) && value <= std::max(a, b);
-    };
+    const auto crossed  = [](double from, double to, double edge) { return (from < edge && to >= edge) || (from > edge && to <= edge); };
+    const auto overlaps = [](double value, double a, double b) { return value >= std::min(a, b) && value <= std::max(a, b); };
 
     if (barrierX1 == barrierX2) {
         if (!crossed(previousX, currentX, barrierX1))
