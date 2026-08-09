@@ -1127,11 +1127,21 @@ void CHyprOpenGLImpl::renderRectWithBlurInternal(const CBox& box, const CHyprCol
 
     auto       blurredBG = data.xray ? g_pHyprRenderer->m_renderData.pMonitor->resources()->m_blurFB->getTexture() : g_pHyprRenderer->blurMainFramebuffer(data.blurA, &damage);
 
-    CBox       MONITORBOX                     = {0, 0, g_pHyprRenderer->m_renderData.pMonitor->m_transformedSize.x, g_pHyprRenderer->m_renderData.pMonitor->m_transformedSize.y};
+    const auto MONITORSIZE                    = g_pHyprRenderer->m_renderData.pMonitor->m_transformedSize;
     const auto SAVEDRENDERMODIF               = g_pHyprRenderer->m_renderData.renderModif;
-    g_pHyprRenderer->m_renderData.renderModif = {}; // fix shit
-    renderTexture(blurredBG, MONITORBOX,
-                  STextureRenderData{.damage = &damage, .a = data.blurA, .round = data.round, .roundingPower = 2.F, .allowCustomUV = false, .allowDim = false, .noAA = false});
+    g_pHyprRenderer->m_renderData.renderModif = {};
+    renderTextureInternal(blurredBG, box,
+                          STextureRenderData{
+                              .damage                      = &damage,
+                              .a                           = data.blurA,
+                              .round                       = data.round,
+                              .roundingPower               = data.roundingPower,
+                              .allowCustomUV               = true,
+                              .allowDim                    = false,
+                              .noAA                        = false,
+                              .primarySurfaceUVTopLeft     = box.pos() / MONITORSIZE,
+                              .primarySurfaceUVBottomRight = (box.pos() + box.size()) / MONITORSIZE,
+                          });
     g_pHyprRenderer->m_renderData.renderModif = SAVEDRENDERMODIF;
 
     renderRectWithDamageInternal(box, col, data);
