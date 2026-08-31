@@ -1,4 +1,6 @@
 #include "Monitor.hpp"
+#include "../desktop/view/window/WindowEffectsController.hpp"
+#include "../desktop/view/window/WindowPresentation.hpp"
 #include "../helpers/MiscFunctions.hpp"
 #include "../macros.hpp"
 #include "SharedDefs.hpp"
@@ -20,6 +22,7 @@
 #include "../protocols/ToplevelExport.hpp"
 #include "../pointer/PointerManager.hpp"
 #include "../pointer/PointerController.hpp"
+#include "../layout/target/Target.hpp"
 #include "../managers/eventLoop/EventLoopManager.hpp"
 #include "../protocols/core/Compositor.hpp"
 #include "../protocols/core/DataDevice.hpp"
@@ -48,6 +51,7 @@
 #include "../event/EventBus.hpp"
 #include "../helpers/Drm.hpp"
 #include "MonitorFrameScheduler.hpp"
+#include "OutputCommitCoordinator.hpp"
 #include <aquamarine/output/Output.hpp>
 #include "debug/log/Logger.hpp"
 #include "notification/NotificationOverlay.hpp"
@@ -97,6 +101,8 @@ CMonitor::CMonitor(SP<Aquamarine::IOutput> output_) : m_name(output_->name), m_s
     m_backgroundOpacity->setUpdateCallback([this](auto) { g_pHyprRenderer->damageMonitor(m_self.lock()); });
     Animation::mgr()->createAnimation(0.F, m_dpmsBlackOpacity, Config::animationTree()->getAnimationPropertyConfig("fadeDpms"), AVARDAMAGE_NONE);
     m_dpmsBlackOpacity->setUpdateCallback([this](auto) { g_pHyprRenderer->damageMonitor(m_self.lock()); });
+
+    m_commitCoordinator = makeUnique<COutputCommitCoordinator>(this);
 }
 
 CMonitor::~CMonitor() {
@@ -126,20 +132,41 @@ void CMonitor::onConnect(bool noRule) {
             [](PHLWORKSPACE ws, PHLMONITOR mon, bool noWarp) { State::workspacePlacementController()->moveWorkspaceToMonitor(ws, mon, noWarp); });
     });
 
-    m_listeners.frame      = m_output->events.frame.listen([this] {
+    m_listeners.frame        = m_output->events.frame.listen([this] {
         if (m_frameScheduler)
             m_frameScheduler->onFrame();
     });
-    m_listeners.commit     = m_output->events.commit.listen([this] {
-        m_events.commit.emit();
+    m_listeners.commit       = m_output->events.commit.listen([this] {
+        if (!m_commitCoordinator->shouldForwardCommitEvent())
+            return;
 
-        // FIXME: E->state->committed & WLR_OUTPUT_STATE_BUFFER
-        if (true && Screenshare::mgr())
-            Screenshare::mgr()->onOutputCommit(m_self.lock());
+        m_events.commit.emit();
     });
-    m_listeners.needsFrame = m_output->events.needsFrame.listen([this] { scheduleFrame(Aquamarine::IOutput::AQ_SCHEDULE_NEEDS_FRAME); });
+    m_listeners.commitResult = m_output->events.commitResult.listen([this](const Aquamarine::IOutput::SCommitResult& result) { m_commitCoordinator->onCommitResult(result); });
+    m_listeners.needsFrame   = m_output->events.needsFrame.listen([this] { scheduleFrame(Aquamarine::IOutput::AQ_SCHEDULE_NEEDS_FRAME); });
 
     m_listeners.presented = m_output->events.present.listen([this](const Aquamarine::IOutput::SPresentEvent& event) {
+        timespec ts{};
+        auto     flags = event.flags;
+
+        if (event.when && event.when->tv_sec > 2) {
+            // drop this timestamp, it's not valid. Likely drm is cringe. We can't push it further because
+            // a) it's wrong, b) our translations aren't 100% accurate and risk underflows
+            ts = *event.when;
+        } else {
+            clock_gettime(CLOCK_MONOTONIC, &ts);
+            flags &= ~Aquamarine::IOutput::AQ_OUTPUT_PRESENT_HW_CLOCK;
+        }
+
+        PROTO::presentation->onPresented(m_self.lock(), ts, event.refresh, event.seq, flags, event.commitID, event.presented);
+
+        m_commitCoordinator->onPresented(event.commitID, event.presented);
+
+        if (!event.presented) {
+            m_damage.damageEntire();
+            return;
+        }
+
         if (m_pendingDpmsAnimation) {
             m_pendingDpmsAnimationCounter++;
             // we give ourselves 5 frames of a buffer. The first presentation event still doesn't usually say that we actually
@@ -153,20 +180,6 @@ void CMonitor::onConnect(bool noRule) {
                 m_pendingDpmsAnimation = false;
             }
         }
-
-        timespec ts{};
-        auto     flags = event.flags;
-
-        if (event.when && event.when->tv_sec > 2) {
-            // drop this timestamp, it's not valid. Likely drm is cringe. We can't push it further because
-            // a) it's wrong, b) our translations aren't 100% accurate and risk underflows
-            ts = *event.when;
-        } else {
-            clock_gettime(CLOCK_MONOTONIC, &ts);
-            flags &= ~Aquamarine::IOutput::AQ_OUTPUT_PRESENT_HW_CLOCK;
-        }
-
-        PROTO::presentation->onPresented(m_self.lock(), ts, event.refresh, event.seq, flags);
 
         if (m_zoomAnimFrameCounter < 5) {
             m_zoomAnimFrameCounter++;
@@ -229,6 +242,7 @@ void CMonitor::onConnect(bool noRule) {
             Log::logger->log(Log::DEBUG, "Reapplying monitor rule for {} from a state request", m_name);
             auto cpy = m_activeMonitorRule;
             applyMonitorRule(std::move(cpy));
+            State::monitorLayoutController()->scheduleRecheck();
             return;
         }
 
@@ -247,6 +261,7 @@ void CMonitor::onConnect(bool noRule) {
         rule.m_resolution = SIZE;
 
         applyMonitorRule(std::move(rule));
+        State::monitorLayoutController()->scheduleRecheck();
     });
 
     m_frameScheduler         = makeUnique<CMonitorFrameScheduler>(m_self.lock());
@@ -328,6 +343,8 @@ void CMonitor::onConnect(bool noRule) {
     if (!isMirror())
         setupDefaultWS(monitorRule);
 
+    const auto REAL_MONITOR_COUNT = std::ranges::count_if(State::monitorState()->monitors(), [](const auto& mon) { return !mon->m_isUnsafeFallback; });
+
     for (auto const& ws : State::workspaceState()->workspacesCopy()) {
         if (!valid(ws))
             continue;
@@ -335,8 +352,7 @@ void CMonitor::onConnect(bool noRule) {
         const auto CURRENTMON = ws->m_monitor.lock();
         const bool ORPHANED   = !CURRENTMON || std::ranges::none_of(State::monitorState()->monitors(), [&](const auto& mon) { return mon == CURRENTMON; });
         const bool RETURNING  = ws->m_lastMonitor == m_name;
-        const bool RECOVERY   = ORPHANED &&
-            std::ranges::count_if(State::monitorState()->monitors(), [](const auto& mon) { return !mon->m_isUnsafeFallback; }) == 1; // temporarily recover orphaned workspaces
+        const bool RECOVERY   = ORPHANED && (m_isUnsafeFallback || REAL_MONITOR_COUNT == 1); // temporarily recover orphaned workspaces
 
         if (RETURNING || RECOVERY) {
             State::workspacePlacementController()->moveWorkspaceToMonitor(ws, m_self.lock());
@@ -409,6 +425,7 @@ void CMonitor::onDisconnect(bool destroy) {
     }};
 
     m_frameScheduler.reset();
+    m_commitCoordinator->cancelPending();
     clearModeRetry();
 
     if (!m_enabled || g_pCompositor->m_isShuttingDown)
@@ -456,6 +473,7 @@ void CMonitor::onDisconnect(bool destroy) {
     m_listeners.presented.reset();
     m_listeners.needsFrame.reset();
     m_listeners.commit.reset();
+    m_listeners.commitResult.reset();
 
     for (size_t i = 0; i < 4; ++i) {
         for (auto const& ls : m_layerSurfaceLayers[i]) {
@@ -477,9 +495,9 @@ void CMonitor::onDisconnect(bool destroy) {
     }
 
     // Preserve ownership across cascaded monitor disconnects.
-    // The first disconnected monitor "owns" where a workspace should return.
+    // The first disconnected real monitor "owns" where a workspace should return.
     for (auto const& w : wspToMove) {
-        if (w && w->m_lastMonitor.empty())
+        if (!m_isUnsafeFallback && w && w->m_lastMonitor.empty())
             w->m_lastMonitor = m_name;
     }
 
@@ -654,6 +672,8 @@ void CMonitor::applyCMType(NCMType::eCMType cmType, NTransferFunction::eTF cmSdr
         if (PROTO::colorManagement)
             PROTO::colorManagement->onMonitorImageDescriptionChanged(m_self);
         m_blurFBDirty = true;
+        // the output's colour transform changed, so everything already composited is stale
+        g_pHyprRenderer->damageMonitor(m_self.lock());
     }
 }
 
@@ -1486,12 +1506,12 @@ void CMonitor::changeWorkspace(const PHLWORKSPACE& pWorkspace, bool internal, bo
 
         // move pinned windows
         for (auto const& w : Desktop::windowState()->windows()) {
-            if (w->m_workspace == POLDWORKSPACE && w->m_pinned)
+            if (w->m_workspace == POLDWORKSPACE && (w->m_state & WINDOW_STATE_PINNED))
                 w->layoutTarget()->assignToSpace(pWorkspace->m_space);
         }
 
         if (!noFocus && !Desktop::focusState()->monitor()->m_activeSpecialWorkspace &&
-            !(Desktop::focusState()->window() && Desktop::focusState()->window()->m_pinned && Desktop::focusState()->window()->m_monitor == m_self)) {
+            !(Desktop::focusState()->window() && (Desktop::focusState()->window()->m_state & WINDOW_STATE_PINNED) && Desktop::focusState()->window()->m_monitor == m_self)) {
             static auto PFOLLOWMOUSE = CConfigValue<Config::INTEGER>("input:follow_mouse");
             auto pWindow = Fullscreen::controller()->hasFullscreen(pWorkspace) ? Fullscreen::controller()->getFullscreenWindow(pWorkspace) : pWorkspace->getLastFocusedWindow();
 
@@ -1522,7 +1542,7 @@ void CMonitor::changeWorkspace(const PHLWORKSPACE& pWorkspace, bool internal, bo
     // set all LSes as not above fullscreen on workspace changes
     for (auto const& ls : Desktop::layerState()->layers()) {
         if (ls->m_monitor == m_self)
-            ls->m_aboveFullscreen = false;
+            ls->m_flags &= ~LAYER_FLAG_ABOVE_FULLSCREEN;
     }
 
     pWorkspace->m_events.activeChanged.emit();
@@ -1582,7 +1602,7 @@ void CMonitor::setSpecialWorkspace(const PHLWORKSPACE& pWorkspace, bool noFocus)
             // Reset layer surface state when closing special workspace
             for (auto const& ls : Desktop::layerState()->layers()) {
                 if (ls->m_monitor == m_self)
-                    ls->m_aboveFullscreen = false;
+                    ls->m_flags &= ~LAYER_FLAG_ABOVE_FULLSCREEN;
             }
         }
         m_activeSpecialWorkspace.reset();
@@ -1593,7 +1613,7 @@ void CMonitor::setSpecialWorkspace(const PHLWORKSPACE& pWorkspace, bool noFocus)
         g_layoutManager->recalculateMonitor(m_self.lock(), Layout::CLayoutManager::RECALCULATE_MONITOR_REASON_TOGGLE_SPECIAL_WORKSPACE);
 
         if (!(noFocus && Desktop::focusState()->monitor() != m_self) &&
-            !(Desktop::focusState()->window() && Desktop::focusState()->window()->m_pinned && Desktop::focusState()->window()->m_monitor == m_self)) {
+            !(Desktop::focusState()->window() && (Desktop::focusState()->window()->m_state & WINDOW_STATE_PINNED) && Desktop::focusState()->window()->m_monitor == m_self)) {
             if (const auto PLAST = m_activeWorkspace->getLastFocusedWindow(); PLAST)
                 Desktop::focusState()->fullWindowFocus(PLAST, Desktop::FOCUS_REASON_TOGGLE_SPECIAL_WORKSPACE);
             else
@@ -1628,7 +1648,7 @@ void CMonitor::setSpecialWorkspace(const PHLWORKSPACE& pWorkspace, bool noFocus)
         g_pHyprRenderer->damageMonitor(PMONITOR);
         if (noFocus &&
             (Desktop::focusState()->monitor() == PMONITOR &&
-             !(Desktop::focusState()->window() && Desktop::focusState()->window()->m_pinned && Desktop::focusState()->window()->m_monitor == PMONITOR))) {
+             !(Desktop::focusState()->window() && (Desktop::focusState()->window()->m_state & WINDOW_STATE_PINNED) && Desktop::focusState()->window()->m_monitor == PMONITOR))) {
             // leave focus behind
             if (const auto PLAST = PMONITOR->m_activeWorkspace->getLastFocusedWindow(); PLAST)
                 Desktop::focusState()->fullWindowFocus(PLAST, Desktop::FOCUS_REASON_TOGGLE_SPECIAL_WORKSPACE);
@@ -1641,7 +1661,7 @@ void CMonitor::setSpecialWorkspace(const PHLWORKSPACE& pWorkspace, bool noFocus)
         // Reset layer surfaces on the old monitor when special workspace is stolen
         for (auto const& ls : Desktop::layerState()->layers()) {
             if (ls->m_monitor == PMONITOR)
-                ls->m_aboveFullscreen = false;
+                ls->m_flags &= ~LAYER_FLAG_ABOVE_FULLSCREEN;
         }
 
         const auto PACTIVEWORKSPACE = PMONITOR->m_activeWorkspace;
@@ -1660,7 +1680,7 @@ void CMonitor::setSpecialWorkspace(const PHLWORKSPACE& pWorkspace, bool noFocus)
     // Reset layer surface state when opening special workspace
     for (auto const& ls : Desktop::layerState()->layers()) {
         if (ls->m_monitor == m_self)
-            ls->m_aboveFullscreen = false;
+            ls->m_flags &= ~LAYER_FLAG_ABOVE_FULLSCREEN;
     }
 
     if (POLDSPECIAL)
@@ -1679,10 +1699,10 @@ void CMonitor::setSpecialWorkspace(const PHLWORKSPACE& pWorkspace, bool noFocus)
         if (w->m_workspace == pWorkspace) {
             w->m_monitor = m_self;
             w->updateSurfaceScaleTransformDetails();
-            w->setAnimationsToMove();
+            w->presentation().setAnimationsToMove();
 
             const auto MIDDLE = w->middle();
-            if (w->m_isFloating && VECNOTINRECT(MIDDLE, m_position.x, m_position.y, m_position.x + m_size.x, m_position.y + m_size.y) && !w->isX11OverrideRedirect()) {
+            if (w->isFloating() && VECNOTINRECT(MIDDLE, m_position.x, m_position.y, m_position.x + m_size.x, m_position.y + m_size.y) && !w->backend().traits().overrideRedirect) {
                 // if it's floating and the middle isn't on the current mon, move it to the center
                 const auto PMONFROMMIDDLE = State::monitorState()->query().vec(MIDDLE).run();
                 Vector2D   pos            = w->position(Desktop::View::IGeometric::GEOMETRIC_GOAL);
@@ -1702,7 +1722,7 @@ void CMonitor::setSpecialWorkspace(const PHLWORKSPACE& pWorkspace, bool noFocus)
 
     if (!noFocus ||
         (Desktop::focusState()->monitor() == m_self &&
-         !(Desktop::focusState()->window() && Desktop::focusState()->window()->m_pinned && Desktop::focusState()->window()->m_monitor == m_self))) {
+         !(Desktop::focusState()->window() && (Desktop::focusState()->window()->m_state & WINDOW_STATE_PINNED) && Desktop::focusState()->window()->m_monitor == m_self))) {
         // focus the workspace we just moved
         if (const auto PLAST = pWorkspace->getLastFocusedWindow(); PLAST)
             Desktop::focusState()->fullWindowFocus(PLAST, Desktop::FOCUS_REASON_TOGGLE_SPECIAL_WORKSPACE);
@@ -1755,7 +1775,7 @@ void CMonitor::moveTo(const Vector2D& pos) {
     const auto DELTA = pos - OLD_POSITION;
 
     for (const auto& w : Desktop::windowState()->windows()) {
-        if (!validMapped(w) || !w->m_isFloating || w->m_monitor != m_self)
+        if (!validMapped(w) || !w->isFloating() || w->m_monitor != m_self)
             continue;
 
         w->layoutTarget()->setPositionGlobal(w->layoutTarget()->position().translate(DELTA));
@@ -1887,7 +1907,7 @@ uint32_t CMonitor::isSolitaryBlocked(bool full) {
         return reasons;
     }
 
-    if (!PCANDIDATE->opaque()) {
+    if (!PCANDIDATE->presentation().opaque()) {
         reasons |= SC_OPAQUE;
         if (!full)
             return reasons;
@@ -1924,10 +1944,10 @@ uint32_t CMonitor::isSolitaryBlocked(bool full) {
     }
 
     for (auto const& w : Desktop::windowState()->windows()) {
-        if (w == PCANDIDATE || !w->m_isMapped || !w->visible())
+        if (w == PCANDIDATE || !w->mapped() || !w->acceptsInput() || !w->alphaNonZero())
             continue;
 
-        if (w->workspaceID() == PCANDIDATE->workspaceID() && w->m_isFloating && w->isAllowedOverFullscreen() && w->visibleOnMonitor(m_self.lock())) {
+        if (w->workspaceID() == PCANDIDATE->workspaceID() && w->isFloating() && w->isAllowedOverFullscreen() && w->presentation().visibleOnMonitor(m_self.lock())) {
             reasons |= SC_FLOAT;
             if (!full)
                 return reasons;
@@ -2098,7 +2118,7 @@ uint16_t CMonitor::isDSBlocked(bool full) {
         return reasons;
     }
 
-    if (PCANDIDATE->m_transformers.blocksDirectScanout()) {
+    if (PCANDIDATE->effects().blocksDirectScanout()) {
         reasons |= DS_BLOCK_TRANSFORM;
         if (!full)
             return reasons;
@@ -2154,6 +2174,7 @@ bool CMonitor::attemptDirectScanout() {
     // #TODO this entire bit needs figuring out, vrr goes down the drain without it
     if (PBUFFER == m_output->state->state().buffer && *PSAME) {
         PSURFACE->presentFeedback(Time::steadyNow(), m_self.lock());
+        PROTO::presentation->tagQueued(m_self.lock(), 0, m_tearingState.activelyTearing, m_vrrActive);
 
         if (m_scanoutNeedsCursorUpdate) {
             if (!m_state.test()) {
@@ -2222,7 +2243,13 @@ bool CMonitor::attemptDirectScanout() {
 
     PSURFACE->presentFeedback(Time::steadyNow(), m_self.lock());
 
-    m_output->state->addDamage(PSURFACE->m_current.accumulateBufferDamage());
+    auto    damageTransaction = m_damage.beginTransaction();
+    CRegion scanoutDamage     = damageTransaction.getBufferDamage(1);
+    // the ring is in transformed space, the fb we hand to KMS is in pixel space
+    scanoutDamage.transform(Math::wlTransformToHyprutils(Math::invertTransform(m_transform)), m_transformedSize.x, m_transformedSize.y);
+    // expand to not miss pixels from rounding, being a bit over is safe, going below is stale pixels.
+    scanoutDamage.expand(1).intersect(CBox{{}, m_pixelSize});
+    m_output->state->addDamage(scanoutDamage);
 
     // multigpu needs a fence to trigger fence syncing blits and also committing with the recreated dgpu fence
     if (g_pHyprRenderer->explicitSyncSupported() && isMultiGPU()) {
@@ -2240,20 +2267,24 @@ bool CMonitor::attemptDirectScanout() {
 
     // no need to do explicit sync here as surface current can only ever be ready to read
 
-    bool ok = m_output->commit();
+    COutputCommitCoordinator::SFrame frame{
+        .kind              = COutputCommitCoordinator::FRAME_DIRECT_SCANOUT,
+        .damage            = std::move(damageTransaction),
+        .scanoutCandidate  = PCANDIDATE,
+        .rollbackSwapchain = false,
+        .tearing           = m_tearingState.activelyTearing,
+        .vrr               = m_vrrActive,
+        .previousFormat    = previousFormat,
+    };
 
-    if (!ok) {
+    const auto result = m_commitCoordinator->submit(std::move(frame));
+    if (result == COutputCommitCoordinator::SUBMIT_FAILED) {
         Log::logger->log(Log::TRACE, "attemptDirectScanout: failed to scanout surface");
         m_lastScanout.reset();
         return false;
     }
 
     scanoutCommitted = true;
-
-    if (m_lastScanout.expired()) {
-        m_lastScanout = PCANDIDATE;
-        Log::logger->log(Log::DEBUG, "Entered a direct scanout to {:x}: \"{}\"", rc<uintptr_t>(PCANDIDATE.get()), PCANDIDATE->m_title);
-    }
 
     m_scanoutNeedsCursorUpdate = false;
 
@@ -2283,6 +2314,7 @@ void CMonitor::handleDSleave() {
 
     m_drmFormat   = m_prevDrmFormat;
     m_blurFBDirty = true;
+    m_damage.damageEntire();
 }
 
 bool CMonitor::canAttemptDirectScanoutFast() const {
@@ -2699,6 +2731,9 @@ void CMonitorState::ensureBufferPresent() {
 }
 
 bool CMonitorState::commit() {
+    if (m_owner->m_commitCoordinator->deferStateCommit())
+        return true;
+
     if (!updateSwapchain())
         return false;
 
@@ -2787,13 +2822,7 @@ bool CMonitor::useFP16() {
     };
 
     // Auto: use FP16 if the monitor is not sRGB or is 10 bit
-    bool        shouldUse  = g_pHyprRenderer->fp16Supported() && (*PFP16 == 1 || (*PFP16 == 2 && (!isSRGB() || m_enabled10bit)));
-    static bool usedBefore = shouldUse;
-    if (usedBefore != shouldUse) {
-        usedBefore    = shouldUse;
-        m_blurFBDirty = true;
-    }
-    return shouldUse;
+    return g_pHyprRenderer->fp16Supported() && (*PFP16 == 1 || (*PFP16 == 2 && (!isSRGB() || m_enabled10bit)));
 }
 
 PImageDescription CMonitor::workBufferImageDescription() {

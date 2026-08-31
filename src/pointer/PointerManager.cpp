@@ -621,9 +621,14 @@ SP<Aquamarine::IBuffer> CPointerManager::renderHWCursorBuffer(SP<CPointerManager
 
     RBO->bind();
 
+    // the cursor plane is blended after the FB is encoded into the output's colour space,
+    // so tag it - otherwise a raw sRGB cursor gets reinterpreted there, blinding on PQ
+    const auto FB = RBO->getFB();
+    FB->setImageDescription(state->monitor->m_imageDescription);
+
     CRegion damageRegion = {0, 0, INT_MAX, INT_MAX};
-    g_pHyprRenderer->beginFullFakeRender(state->monitor.lock(), damageRegion, RBO->getFB());
-    g_pHyprRenderer->m_renderData.fbSize = RBO->getFB()->m_size;
+    g_pHyprRenderer->beginFullFakeRender(state->monitor.lock(), damageRegion, FB);
+    g_pHyprRenderer->m_renderData.fbSize = FB->m_size;
     g_pHyprRenderer->setProjectionType(Render::RPT_FB);
     g_pHyprRenderer->m_renderData.transformDamage = true;
     g_pHyprRenderer->startRenderPass();
@@ -846,7 +851,7 @@ void CPointerManager::move(const Vector2D& deltaLogical) {
     warpTo(newPos);
 }
 
-void CPointerManager::warpAbsolute(Vector2D abs, SP<IHID> dev) {
+void CPointerManager::warpAbsolute(Vector2D abs, SP<IHID> dev, WP<Aquamarine::IOutput> output) {
     if (!dev || State::monitorState()->monitors().empty())
         return;
 
@@ -870,9 +875,11 @@ void CPointerManager::warpAbsolute(Vector2D abs, SP<IHID> dev) {
         if (POS.y < topLeft.y)
             topLeft.y = POS.y;
     }
-    CBox mappedArea = {topLeft, bottomRight - topLeft};
+    CBox                mappedArea           = {topLeft, bottomRight - topLeft};
+    wl_output_transform coordinateTransform  = WL_OUTPUT_TRANSFORM_NORMAL;
+    bool                mappedToSourceOutput = false;
 
-    auto outputMappedArea = [&mappedArea](const std::string& output) {
+    auto                outputMappedArea = [&mappedArea](const std::string& output) {
         if (output == "current") {
             if (const auto PLASTMONITOR = Desktop::focusState()->monitor(); PLASTMONITOR)
                 return PLASTMONITOR->logicalBox();
@@ -914,13 +921,27 @@ void CPointerManager::warpAbsolute(Vector2D abs, SP<IHID> dev) {
         default: break;
     }
 
+    if (const auto SOURCEOUTPUT = output.lock(); SOURCEOUTPUT) {
+        for (const auto& MONITOR : MONITORS) {
+            if (MONITOR->m_output != SOURCEOUTPUT)
+                continue;
+
+            mappedArea           = MONITOR->logicalBox();
+            coordinateTransform  = MONITOR->m_transform;
+            mappedToSourceOutput = true;
+            break;
+        }
+    }
+
     damageIfSoftware();
 
     if (std::isnan(abs.x) || std::isnan(abs.y)) {
         m_pointerPos.x = std::isnan(abs.x) ? m_pointerPos.x : mappedArea.x + mappedArea.w * abs.x;
         m_pointerPos.y = std::isnan(abs.y) ? m_pointerPos.y : mappedArea.y + mappedArea.h * abs.y;
-    } else
-        m_pointerPos = mappedArea.pos() + mappedArea.size() * abs;
+    } else {
+        const auto MAPPED = Math::mapNormalizedToBox(abs, mappedArea, coordinateTransform);
+        m_pointerPos      = mappedToSourceOutput ? mappedArea.closestPoint(MAPPED) : MAPPED;
+    }
 
     onCursorMoved();
     recheckEnteredOutputs();

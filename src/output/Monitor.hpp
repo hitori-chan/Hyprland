@@ -40,6 +40,7 @@ class CEventLoopTimer;
 namespace Monitor {
     class CMonitorResources;
     class CMonitorFrameScheduler;
+    class COutputCommitCoordinator;
     class CMonitor;
 
     class CMonitorState {
@@ -136,6 +137,7 @@ namespace Monitor {
         PHLMONITORREF                  m_self;
 
         UP<CMonitorFrameScheduler>     m_frameScheduler;
+        UP<COutputCommitCoordinator>   m_commitCoordinator;
 
         // mirroring
         PHLMONITORREF              m_mirrorOf;
@@ -423,6 +425,7 @@ namespace Monitor {
             CHyprSignalListener needsFrame;
             CHyprSignalListener presented;
             CHyprSignalListener commit;
+            CHyprSignalListener commitResult;
         } m_listeners;
 
         int   m_supportsWideColor = 0;

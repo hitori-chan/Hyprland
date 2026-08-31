@@ -2,7 +2,7 @@
 #include "Algorithm.hpp"
 #include "../space/Space.hpp"
 #include "../target/Target.hpp"
-#include "../../desktop/view/Window.hpp"
+#include "../../desktop/view/window/Window.hpp"
 #include "../../managers/fullscreen/FullscreenController.hpp"
 #include "../../managers/fullscreen/handler/FullscreenHandler.hpp"
 

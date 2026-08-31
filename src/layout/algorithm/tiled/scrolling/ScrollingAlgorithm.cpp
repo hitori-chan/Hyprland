@@ -1,9 +1,12 @@
 #include "ScrollingAlgorithm.hpp"
+#include "../../../../desktop/view/window/WindowGroupMembership.hpp"
+#include "../../../../desktop/view/window/WindowPresentation.hpp"
 #include "ScrollTapeController.hpp"
 
 #include "../../Algorithm.hpp"
 #include "../../../space/Space.hpp"
 #include "../../../LayoutManager.hpp"
+#include "../../../target/WindowTarget.hpp"
 
 #include "../../../../Compositor.hpp"
 #include "../../../../desktop/state/FocusState.hpp"
@@ -448,7 +451,8 @@ void SScrollingData::recalculate(bool forceInstant) {
     auto* const       PGAPSIN       = sc<Config::CCssGapData*>((PGAPSINDATA.ptr()));
     const auto        GAPSIN        = (WORKSPACERULE && WORKSPACERULE->m_gapsIn.has_value()) ? WORKSPACERULE->m_gapsIn.value() : *PGAPSIN;
 
-    if (const auto FULLSCREEN_WINDOW = Fullscreen::controller()->getFullscreenWindow(WORKSPACE);
+    // If there is a default covering fullscreen window (tiled or floating)
+    if (const auto FULLSCREEN_WINDOW = Fullscreen::controller()->getFullscreenWindow(WORKSPACE, true);
         FULLSCREEN_WINDOW && !Fullscreen::controller()->layoutManagedFS(FULLSCREEN_WINDOW)) {
         algorithm->m_scrollingFullscreenHandler->setNoMembersAboveFullscreen();
         return;
@@ -484,9 +488,7 @@ void SScrollingData::recalculate(bool forceInstant) {
         return {.logicalBox = logical, .visualBox = visual};
     };
 
-    bool                     targetWorkspaceHasCoveringFullscreen = false;
-
-    SP<SScrollingTargetData> currentFsTdata = nullptr;
+    SP<SScrollingTargetData> currentCoveringFsTdata = nullptr;
 
     for (size_t i = 0; i < columns.size(); ++i) {
         const auto& COL = columns[i];
@@ -505,10 +507,9 @@ void SScrollingData::recalculate(bool forceInstant) {
                 if (TARGET_FS_MODE == Fullscreen::FSMODE_FULLSCREEN) {
                     // Target is Covering Fullscreen
                     if (algorithm->m_scrollingFullscreenHandler->isFullscreen(TARGET, Fullscreen::FSMODE_FULLSCREEN, true)) {
-                        TDATA->layoutBox                     = MONBOX;
-                        currentFsTdata                       = TDATA;
-                        targetWorkspaceHasCoveringFullscreen = true;
-                        targetIsCoveringFullscreen           = true;
+                        TDATA->layoutBox           = MONBOX;
+                        currentCoveringFsTdata     = TDATA;
+                        targetIsCoveringFullscreen = true;
                     }
                     // Target is non-covering fullscreen
                     else {
@@ -524,10 +525,9 @@ void SScrollingData::recalculate(bool forceInstant) {
                 } else if (TARGET_FS_MODE == Fullscreen::FSMODE_MAXIMIZED) {
                     // Target is Covering Maximised
                     if (algorithm->m_scrollingFullscreenHandler->isFullscreen(TARGET, Fullscreen::FSMODE_MAXIMIZED, true)) {
-                        TDATA->layoutBox                     = WORKAREA;
-                        currentFsTdata                       = TDATA;
-                        targetWorkspaceHasCoveringFullscreen = true;
-                        targetIsCoveringFullscreen           = true;
+                        TDATA->layoutBox           = WORKAREA;
+                        currentCoveringFsTdata     = TDATA;
+                        targetIsCoveringFullscreen = true;
                     }
                     // Target is non-covering Maximied
                     else {
@@ -552,6 +552,7 @@ void SScrollingData::recalculate(bool forceInstant) {
                     Fullscreen::controller()->m_windowPosSettingQueued = true;
                 // must set pos of the highest level target (i.e. if target a part of a group, must set that group's pos which will set the pos of all member targets)
                 TDATA->target->setPositionGlobal(targetBoxWithGaps(TDATA->layoutBox, i, j, COL_HAS_FS_TARGET && TARGET_FS_MODE == Fullscreen::FSMODE_FULLSCREEN));
+                Fullscreen::controller()->m_windowPosSettingQueued = false;
             }
 
             if (forceInstant && TDATA->target)
@@ -559,7 +560,8 @@ void SScrollingData::recalculate(bool forceInstant) {
         }
     }
 
-    algorithm->m_scrollingFullscreenHandler->sScrollingDataRecalculateHelper(currentFsTdata, MONITOR, targetWorkspaceHasCoveringFullscreen);
+    // Handles covering FS's setting pos , warp pos and size, and more
+    algorithm->m_scrollingFullscreenHandler->sScrollingDataRecalculateHelper(currentCoveringFsTdata, MONITOR);
 }
 
 double SScrollingData::maxWidth() {
@@ -822,7 +824,7 @@ void CScrollingAlgorithm::resizeTarget(const Vector2D& delta, SP<ITarget> target
         PWINDOW->resize((PWINDOW->size(Desktop::View::IGeometric::GEOMETRIC_GOAL) + delta)
                             .clamp(PWINDOW->m_ruleApplicator->minSize().valueOr(Vector2D{MIN_WINDOW_SIZE, MIN_WINDOW_SIZE}),
                                    PWINDOW->m_ruleApplicator->maxSize().valueOr(Vector2D{INFINITY, INFINITY})));
-        PWINDOW->updateWindowDecos();
+        PWINDOW->presentation().updateDecorations();
         return;
     }
 
@@ -1918,10 +1920,10 @@ SP<SScrollingTargetData> CScrollingAlgorithm::dataFor(SP<ITarget> t, bool stepIn
 
                 // if tracked target data is a group, search the contents of the group for the target
                 if (TARGET->type() == TARGET_TYPE_GROUP && TARGET->window()) {
-                    const auto WINDOW_GROUP = TARGET->window()->m_group;
+                    const auto WINDOW_GROUP = TARGET->window()->grouping().group();
                     if (WINDOW_GROUP) {
                         for (const auto& window : WINDOW_GROUP->windows()) {
-                            if (window->m_target == t)
+                            if (window->windowTarget() == t)
                                 return SCROLLING_DATA;
                         }
                     }

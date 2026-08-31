@@ -1,9 +1,11 @@
 #include "XDGBell.hpp"
-#include "../helpers/BellSound.hpp"
+#include "../bell/BellPlayer.hpp"
 #include "./core/Compositor.hpp"
 #include "../desktop/state/ViewState.hpp"
 #include "../desktop/state/ViewQuery.hpp"
 #include "../event/EventBus.hpp"
+#include "core/Compositor.hpp"
+#include "../desktop/view/window/Window.hpp"
 #include "../ipc/s2/S2.hpp"
 #include <format>
 
@@ -23,7 +25,7 @@ CXDGSystemBellManagerResource::CXDGSystemBellManagerResource(UP<CXdgSystemBellV1
             return;
 
         IPC::Socket2::sock()->postEvent({.event = "bell", .data = WINDOW ? std::format("{:x}", rc<uintptr_t>(WINDOW.get())) : ""});
-        CBellSound::play();
+        Bell::player()->play();
     });
 }
 

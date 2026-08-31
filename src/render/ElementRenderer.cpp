@@ -1,9 +1,12 @@
 #include "ElementRenderer.hpp"
 #include "Renderer.hpp"
 #include "../layout/LayoutManager.hpp"
-#include "../desktop/view/Window.hpp"
+#include "../desktop/view/window/Window.hpp"
+#include "../desktop/view/window/WindowEffectsController.hpp"
+#include "../desktop/view/window/WindowPresentation.hpp"
 #include "render/pass/ClearPassElement.hpp"
 #include "../protocols/XDGShell.hpp"
+#include "render/transformer/TransformerList.hpp"
 #include <hyprutils/memory/SharedPtr.hpp>
 #include <hyprutils/memory/UniquePtr.hpp>
 #include <hyprutils/utils/ScopeGuard.hpp>
@@ -30,6 +33,7 @@ void IElementRenderer::drawElement(WP<IPassElement> element, const CRegion& dama
         case EK_TEXTURE: drawTex(dynamicPointerCast<CTexPassElement>(element), damage); break;
         case EK_TEXTURE_MATTE: drawTexMatte(dynamicPointerCast<CTextureMatteElement>(element), damage); break;
         case EK_TRANSFORMED_WINDOW: drawTransformedWindow(dynamicPointerCast<CTransformedWindowPassElement>(element), damage); break;
+        case EK_BACKDROP_SCOPE: drawCustom(element, damage); break;
         case EK_CUSTOM: drawCustom(element, damage); break;
         default: Log::logger->log(Log::WARN, "Unimplimented draw for {}", element->passName());
     }
@@ -37,7 +41,7 @@ void IElementRenderer::drawElement(WP<IPassElement> element, const CRegion& dama
 
 static std::optional<Vector2D> getSurfaceExpectedSize(PHLWINDOW pWindow, SP<CWLSurfaceResource> pSurface, PHLMONITOR pMonitor, bool main) {
     const auto CAN_USE_WINDOW       = pWindow && main;
-    const auto WINDOW_SIZE_MISALIGN = CAN_USE_WINDOW && pWindow->getReportedSize() != pWindow->wlSurface()->resource()->m_current.size;
+    const auto WINDOW_SIZE_MISALIGN = CAN_USE_WINDOW && pWindow->backend().reportedSize() != pWindow->wlSurface()->resource()->m_current.size;
 
     if (pSurface->m_current.viewport.hasDestination)
         return (pSurface->m_current.viewport.destination * pMonitor->m_scale).round();
@@ -49,7 +53,7 @@ static std::optional<Vector2D> getSurfaceExpectedSize(PHLWINDOW pWindow, SP<CWLS
         return (pSurface->m_current.size * pMonitor->m_scale).round();
 
     if (CAN_USE_WINDOW)
-        return (pWindow->getReportedSize() * pMonitor->m_scale).round();
+        return (pWindow->backend().reportedSize() * pMonitor->m_scale).round();
 
     return std::nullopt;
 }
@@ -58,7 +62,7 @@ void IElementRenderer::calculateUVForSurface(PHLWINDOW pWindow, SP<CWLSurfaceRes
                                              const Vector2D& projSizeUnscaled, bool fixMisalignedFSV1) {
     auto& m_renderData = g_pHyprRenderer->m_renderData;
 
-    if (!pWindow || !pWindow->m_isX11) {
+    if (!pWindow || !pWindow->backend().isX11()) {
         static auto PEXPANDEDGES = CConfigValue<Hyprlang::INT>("render:expand_undersized_textures");
 
         Vector2D    uvTL;
@@ -67,7 +71,12 @@ void IElementRenderer::calculateUVForSurface(PHLWINDOW pWindow, SP<CWLSurfaceRes
         if (pSurface->m_current.viewport.hasSource) {
             // we stretch it to dest. if no dest, to 1,1
             Vector2D const& bufferSize   = pSurface->m_current.bufferSize;
-            auto const&     bufferSource = pSurface->m_current.viewport.source;
+            auto            bufferSource = pSurface->m_current.viewport.source;
+
+            // Viewporter spec order: 1. transform, 2. scale, 3. viewport
+            Vector2D const trc = pSurface->m_current.transform % 2 == 1 ? Vector2D{bufferSize.y, bufferSize.x} : bufferSize;
+            bufferSource.scale(pSurface->m_current.scale);
+            bufferSource.transform(Math::wlTransformToHyprutils(Math::invertTransform(pSurface->m_current.transform)), trc.x, trc.y);
 
             // calculate UV for the basic src_box. Assume dest == size. Scale to dest later
             uvTL = Vector2D(bufferSource.x / bufferSize.x, bufferSource.y / bufferSize.y);
@@ -110,7 +119,7 @@ void IElementRenderer::calculateUVForSurface(PHLWINDOW pWindow, SP<CWLSurfaceRes
                 }
 
                 // FIXME: probably do this for in anims on all views...
-                const auto SHOULD_SKIP = !pWindow || pWindow->m_animatingIn;
+                const auto SHOULD_SKIP = !pWindow || pWindow->presentation().animatingIn();
                 if (!SHOULD_SKIP && (RATIO.x < 1 || RATIO.y < 1)) {
                     const auto FIX = RATIO.clamp(Vector2D{0.0001, 0.0001}, Vector2D{1, 1});
                     uvBR           = uvBR * FIX;
@@ -118,8 +127,8 @@ void IElementRenderer::calculateUVForSurface(PHLWINDOW pWindow, SP<CWLSurfaceRes
             }
         }
 
-        if (main && pWindow && pWindow->m_xdgSurface) {
-            const auto GEOMETRY     = pWindow->m_xdgSurface->m_current.geometry;
+        if (main && pWindow) {
+            const auto GEOMETRY     = pWindow->backend().geometry().box;
             const auto SURFACE_SIZE = pSurface->m_current.size;
 
             // The projected crop already has the configured window size. Move
@@ -196,10 +205,13 @@ void IElementRenderer::drawPreBlur(WP<CPreBlurElement> element, const CRegion& d
     auto&      m_renderData = g_pHyprRenderer->m_renderData;
 
     const auto SAVEDRENDERMODIF = m_renderData.renderModif;
+    const auto SAVEDDAMAGE      = m_renderData.damage;
     m_renderData.renderModif    = {}; // fix shit
 
     // make the fake dmg
     CRegion fakeDamage{0, 0, m_renderData.pMonitor->m_transformedSize.x, m_renderData.pMonitor->m_transformedSize.y};
+
+    m_renderData.damage = fakeDamage; // the clear inside scissors to renderData.damage, it has to match the blit
 
     draw(element, fakeDamage);
 
@@ -207,6 +219,7 @@ void IElementRenderer::drawPreBlur(WP<CPreBlurElement> element, const CRegion& d
     m_renderData.pMonitor->m_blurFBShouldRender = false;
 
     m_renderData.renderModif = SAVEDRENDERMODIF;
+    m_renderData.damage      = SAVEDDAMAGE;
 }
 
 void IElementRenderer::drawClear(WP<CClearPassElement> element, const CRegion& damage) {
@@ -303,7 +316,7 @@ void IElementRenderer::drawSurface(WP<CSurfacePassElement> element, const CRegio
         roundingPower = 2.0f;
     }
 
-    const bool WINDOWOPAQUE    = m_data.pWindow && m_data.pWindow->wlSurface()->resource() == m_data.surface ? m_data.pWindow->opaque() : false;
+    const bool WINDOWOPAQUE    = m_data.pWindow && m_data.pWindow->wlSurface()->resource() == m_data.surface ? m_data.pWindow->presentation().opaque() : false;
     const bool CANDISABLEBLEND = ALPHA >= 1.f && OVERALL_ALPHA >= 1.f && rounding <= 0 && WINDOWOPAQUE;
 
     if (CANDISABLEBLEND)
@@ -315,7 +328,10 @@ void IElementRenderer::drawSurface(WP<CSurfacePassElement> element, const CRegio
     // is a subsurface that does NOT cover the entire frame. In such cases, we probably should fall back
     // to what we do for misaligned surfaces (blur the entire thing and then render shit without blur)
     if (m_data.surfaceCounter == 0 && !m_data.popup) {
-        if (BLUR)
+        if (BLUR) {
+            CBox blurPatternBox = {m_data.pos.x - m_data.pMonitor->m_position.x, m_data.pos.y - m_data.pMonitor->m_position.y, m_data.w, m_data.h};
+            blurPatternBox.scale(m_data.pMonitor->m_scale).round();
+
             drawElement(makeShared<CTexPassElement>(CTexPassElement::SRenderData{
                             .tex                   = TEXTURE,
                             .box                   = windowBox,
@@ -325,6 +341,7 @@ void IElementRenderer::drawSurface(WP<CSurfacePassElement> element, const CRegio
                             .round                 = rounding,
                             .roundingPower         = roundingPower,
                             .blur                  = true,
+                            .blurPatternBox        = blurPatternBox,
                             .blockBlurOptimization = m_data.blockBlurOptimization,
                             .allowCustomUV         = true,
                             .surface               = m_data.surface,
@@ -334,9 +351,11 @@ void IElementRenderer::drawSurface(WP<CSurfacePassElement> element, const CRegio
                             .discardOpacity        = m_data.discardOpacity,
                             .clipRegion            = clipRegion,
                             .currentLS             = m_data.pLS,
+                            .blurOwner             = m_data.pWindow,
                         }),
+
                         surfaceDamage());
-        else
+        } else
             drawElement(makeShared<CTexPassElement>(CTexPassElement::SRenderData{
                             .tex            = TEXTURE,
                             .box            = windowBox,
@@ -479,15 +498,29 @@ void IElementRenderer::drawTex(WP<CTexPassElement> element, const CRegion& damag
             inverseOpaque = {0, 0, element->m_data.box.width, element->m_data.box.height};
 
         inverseOpaque.scale(m_renderData.pMonitor->m_scale);
-        element->m_data.blockBlurOptimization = element->m_data.blockBlurOptimization.value_or(false) ||
-            !g_pHyprRenderer->shouldUseNewBlurOptimizations(element->m_data.currentLS.lock(), m_renderData.currentWindow.lock());
+        element->m_data.blockBlurOptimization = element->usesLiveBlur();
 
         //   vvv TODO: layered blur fbs?
+        SP<IFramebuffer> blurredFB;
         if (element->m_data.blockBlurOptimization.value_or(false)) {
             inverseOpaque.translate(box.pos());
             m_renderData.renderModif.applyToRegion(inverseOpaque);
             inverseOpaque.intersect(element->m_data.damage);
-            element->m_data.blurredBG = g_pHyprRenderer->blurMainFramebuffer(element->m_data.a, &inverseOpaque);
+            auto patternBox = element->m_data.blurPatternBox.value_or(box);
+            m_renderData.renderModif.applyToBox(patternBox);
+            std::optional<SBlurShape> shape;
+            if (!element->m_data.blurShapeInvalid) {
+                auto shapeBox = box;
+                m_renderData.renderModif.applyToBox(shapeBox);
+                if (std::abs(shapeBox.rot) < 0.0001F)
+                    shape = SBlurShape{
+                        .box           = shapeBox,
+                        .radius        = std::max(sc<float>(element->m_data.round), 0.F),
+                        .roundingPower = element->m_data.roundingPower,
+                    };
+            }
+            blurredFB = g_pHyprRenderer->blurMainFramebuffer(element->m_data.a, inverseOpaque, {.patternBox = patternBox, .owner = element->m_data.blurOwner, .shape = shape});
+            element->m_data.blurredBG = blurredFB->getTexture();
         } else
             element->m_data.blurredBG = m_renderData.pMonitor->resources()->m_blurFB->getTexture();
 
@@ -614,7 +647,7 @@ void IElementRenderer::drawTransformedWindow(WP<CTransformedWindowPassElement> e
 
     SWindowTransformPlan plan;
     if (applyTransformers)
-        plan = PWINDOW->m_transformers.plan(element->m_data.currentBox, transformerOutput);
+        plan = PWINDOW->effects().transformers()->plan(element->m_data.currentBox, transformerOutput);
     else {
         plan.sourceBox = transformerOutput.intersection(element->m_data.currentBox);
         plan.outputBox = plan.sourceBox;
@@ -679,15 +712,15 @@ void IElementRenderer::drawTransformedWindow(WP<CTransformedWindowPassElement> e
         if (!applyTransformers)
             return in;
 
-        return PWINDOW->m_transformers.transform(in, plan,
-                                                 SWindowTransformContext{
-                                                     .currentBox        = element->m_data.currentBox,
-                                                     .inputBox          = plan.sourceBox,
-                                                     .outputBox         = plan.outputBox,
-                                                     .monitor           = pMonitor,
-                                                     .standalone        = element->m_data.standalone,
-                                                     .renderingSnapshot = element->m_data.renderingSnapshot,
-                                                 });
+        return PWINDOW->effects().transformers()->transform(in, plan,
+                                                            SWindowTransformContext{
+                                                                .currentBox        = element->m_data.currentBox,
+                                                                .inputBox          = plan.sourceBox,
+                                                                .outputBox         = plan.outputBox,
+                                                                .monitor           = pMonitor,
+                                                                .standalone        = element->m_data.standalone,
+                                                                .renderingSnapshot = element->m_data.renderingSnapshot,
+                                                            });
     };
 
     SWindowTransformBuffer last;
@@ -787,12 +820,15 @@ void IElementRenderer::drawTransformedWindow(WP<CTransformedWindowPassElement> e
     data.useProvidedDamage   = true;
 
     if (element->m_data.blur && blurAlphaMatte) {
-        data.blur                  = true;
-        data.forceBlurBlend        = true;
-        data.blockBlurOptimization = true;
-        data.blurA                 = element->m_data.blurA;
-        data.blurAlphaMatte        = blurAlphaMatte;
-        data.discardMode           = 0;
+        data.blur             = true;
+        data.forceBlurBlend   = true;
+        data.blurPatternBox   = element->m_data.blurBox;
+        data.blurShapeInvalid = true;
+        data.liveBlurOverride = element->m_data.blurUsesLive;
+        data.blurOwner        = element->m_data.window;
+        data.blurA            = element->m_data.blurA;
+        data.blurAlphaMatte   = blurAlphaMatte;
+        data.discardMode      = 0;
     }
 
     (void)blurAlphaMatteFB;

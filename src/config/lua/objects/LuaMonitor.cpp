@@ -144,6 +144,8 @@ static int monitorIndex(lua_State* L) {
         lua_pushinteger(L, sc<int>(mon->m_transform));
     else if (key == "dpms_status")
         lua_pushboolean(L, mon->m_dpmsStatus);
+    else if (key == "enabled")
+        lua_pushboolean(L, mon->enabled());
     else if (key == "vrr_active")
         lua_pushboolean(L, mon->m_vrrActive);
     else if (key == "is_mirror")
@@ -212,6 +214,11 @@ void Objects::CLuaMonitor::setup(lua_State* L) {
 }
 
 void Objects::CLuaMonitor::push(lua_State* L, PHLMONITORREF mon) {
+    if (!mon) {
+        lua_pushnil(L);
+        return;
+    }
+
     new (lua_newuserdata(L, sizeof(PHLMONITORREF))) PHLMONITORREF(mon ? mon->m_self : nullptr);
     luaL_getmetatable(L, MT);
     lua_setmetatable(L, -2);

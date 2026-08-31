@@ -34,6 +34,13 @@ eTransform Math::wlTransformToHyprutils(wl_output_transform t) {
     return eTransform::HYPRUTILS_TRANSFORM_NORMAL;
 }
 
+eTransform Math::invertTransform(eTransform tr) {
+    if ((tr & HYPRUTILS_TRANSFORM_90) && !(tr & HYPRUTILS_TRANSFORM_FLIPPED))
+        tr = sc<eTransform>(tr ^ sc<int>(HYPRUTILS_TRANSFORM_180));
+
+    return tr;
+}
+
 wl_output_transform Math::invertTransform(wl_output_transform tr) {
     if ((tr & WL_OUTPUT_TRANSFORM_90) && !(tr & WL_OUTPUT_TRANSFORM_FLIPPED))
         tr = sc<wl_output_transform>(tr ^ sc<int>(WL_OUTPUT_TRANSFORM_180));
@@ -83,4 +90,12 @@ eTransform Math::composeTransform(eTransform a, eTransform b) {
     RASSERT(b >= HYPRUTILS_TRANSFORM_NORMAL && b <= HYPRUTILS_TRANSFORM_FLIPPED_270, "Invalid transform b in composeTransform");
 
     return lookup[a][b];
+}
+
+Vector2D Math::transformNormalized(const Vector2D& point, wl_output_transform transform) {
+    return CBox{point, {0, 0}}.transform(wlTransformToHyprutils(transform), 1, 1).pos();
+}
+
+Vector2D Math::mapNormalizedToBox(const Vector2D& point, const CBox& box, wl_output_transform transform) {
+    return box.pos() + box.size() * transformNormalized(point, transform);
 }

@@ -11,10 +11,12 @@
 #include "../../../desktop/history/WorkspaceHistoryTracker.hpp"
 #include "../../../desktop/rule/windowRule/WindowRuleEffectContainer.hpp"
 #include "../../../desktop/view/LayerSurface.hpp"
-#include "../../../desktop/view/Window.hpp"
+#include "../../../desktop/view/window/Window.hpp"
 #include "../../../managers/input/InputManager.hpp"
 #include "../../../state/MonitorState.hpp"
 #include "../../../state/WorkspaceState.hpp"
+
+#include <hyprutils/utils/ScopeGuard.hpp>
 
 using namespace Config;
 using namespace Config::Lua;
@@ -47,16 +49,16 @@ static bool windowMatchesQuery(const PHLWINDOW& w, const SWindowQuery& query) {
     if (query.workspace && w->m_workspace != *query.workspace)
         return false;
 
-    if (query.floating && w->m_isFloating != *query.floating)
+    if (query.floating && w->isFloating() != *query.floating)
         return false;
 
-    if (query.mapped && w->m_isMapped != *query.mapped)
+    if (query.mapped && w->mapped() != *query.mapped)
         return false;
 
-    if (query.className && w->m_class != *query.className)
+    if (query.className && w->metadata().appID() != *query.className)
         return false;
 
-    if (query.title && w->m_title != *query.title)
+    if (query.title && w->metadata().title() != *query.title)
         return false;
 
     if (query.tag) {
@@ -202,12 +204,33 @@ static int hlGetActiveSpecialWorkspace(lua_State* L) {
 }
 
 static int hlGetMonitors(lua_State* L) {
+    bool allMonitors = false;
+
+    if (!lua_isnoneornil(L, 1)) {
+        if (!lua_istable(L, 1))
+            return Internal::configError(L, "hl.get_monitors: expected no args or a table of options");
+
+        {
+            lua_getfield(L, 1, "all");
+            Hyprutils::Utils::CScopeGuard x([L] { lua_pop(L, 1); });
+
+            if (!lua_isnil(L, -1)) {
+                const auto all = Check::boolean(L, -1);
+                if (!all)
+                    return Internal::configError(L, "hl.get_monitors: option 'all': {}", all.error());
+
+                allMonitors = *all;
+            }
+        }
+    }
+
     lua_newtable(L);
     int i = 1;
-    for (const auto& mon : State::monitorState()->monitors()) {
+    for (const auto& mon : allMonitors ? State::monitorState()->allMonitors() : State::monitorState()->monitors()) {
         Objects::CLuaMonitor::push(L, mon);
         lua_rawseti(L, -2, i++);
     }
+
     return 1;
 }
 
@@ -301,7 +324,7 @@ static int hlGetLastWindow(lua_State* L) {
 
     for (auto it = fullHistory.rbegin(); it != fullHistory.rend(); ++it) {
         const auto candidate = it->lock();
-        if (!candidate || !candidate->m_isMapped)
+        if (!candidate || !candidate->mapped())
             continue;
 
         if (current && candidate == current)

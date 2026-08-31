@@ -18,6 +18,7 @@ enum ePassElementType : uint8_t {
     EK_INNER_GLOW,
     EK_TRANSFORMED_WINDOW,
     EK_CUSTOM,
+    EK_BACKDROP_SCOPE,
 };
 
 class IPassElement {
@@ -35,6 +36,7 @@ class IPassElement {
     virtual std::optional<CBox> boundingBox();  // in monitor-local logical coordinates
     virtual CRegion             opaqueRegion(); // in monitor-local logical coordinates
     virtual bool                disableSimplification();
+    virtual bool                requiresFullDamage();
 
     // cached results, computed once per frame in CRenderPass::render()
     bool needsLiveBlurCached       = false;

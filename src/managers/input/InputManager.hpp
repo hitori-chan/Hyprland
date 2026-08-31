@@ -122,6 +122,8 @@ class CInputManager {
     // input listeners use this when motion was intentionally intercepted.
     bool               pointerHitIsNativeSurface();
 
+    bool               anyHidHasCap(eHIDCapabilityType type);
+
     Vector2D           getMouseCoordsInternal();
     void               refocus(std::optional<Vector2D> overridePos = std::nullopt);
     bool               refocusLastWindow(PHLMONITOR pMonitor);
@@ -175,7 +177,7 @@ class CInputManager {
     std::list<SSwitchDevice> m_switches;
 
     // Exclusive layer surfaces
-    std::vector<PHLLSREF> m_exclusiveLSes;
+    std::vector<PHLLSREF> m_exclusiveKeyboardLSes;
 
     // constraints
     std::vector<WP<CPointerConstraint>> m_constraints;
