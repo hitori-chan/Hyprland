@@ -225,7 +225,7 @@ void CInputCaptureResource::onEisDisconnect() {
     if (m_status == CLIENT_STATUS_STOPPED)
         return;
 
-    Log::logger->log(Log::WARN, "[input-capture]({}) EIS receiver disconnected; disabling session", m_sessionId.c_str());
+    LOG(Log::WARN, "[input-capture]({}) EIS receiver disconnected; disabling session", m_sessionId.c_str());
     if (m_status == CLIENT_STATUS_ACTIVATED) {
         m_status = CLIENT_STATUS_ENABLED;
         m_eis->stopEmulating();

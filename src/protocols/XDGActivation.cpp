@@ -97,7 +97,7 @@ std::string CXDGActivationProtocol::mintToken() {
     // owning resource whose death would reap the TokenManager entry
     const auto TOKEN = g_pTokenManager->registerNewToken({}, std::chrono::minutes{2});
 
-    LOGM(Log::DEBUG, "minted compositor-side xdg-activation token {}", TOKEN);
+    LOG(Log::DEBUG, "minted compositor-side xdg-activation token {}", TOKEN);
 
     m_sentTokens.push_back({TOKEN, nullptr});
 
