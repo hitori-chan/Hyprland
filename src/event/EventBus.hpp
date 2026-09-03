@@ -17,7 +17,7 @@
 #include <variant>
 
 namespace Desktop {
-    enum eFocusReason : uint8_t;
+    enum eFocusReason : uint32_t;
 }
 namespace Event {
     struct SCallbackInfo {
@@ -93,6 +93,7 @@ namespace Event {
                 Event<PHLWINDOW>                        class_;
                 Event<PHLWINDOW>                        pin;
                 Event<PHLWINDOW>                        fullscreen;
+                Event<PHLWINDOW, bool>                  minimize;
                 Event<PHLWINDOW>                        floating;
                 Event<PHLWINDOW>                        updateRules;
                 Event<PHLWINDOW, PHLWORKSPACE>          moveToWorkspace;

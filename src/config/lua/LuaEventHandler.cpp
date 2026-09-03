@@ -27,7 +27,7 @@ void CLuaEventHandler::dispatch(const std::string& name, int nargs, const std::f
         return;
 
     if (m_dispatchDepth >= MAX_DISPATCH_DEPTH) {
-        Log::logger->log(Log::WARN, "[LuaEvents] max dispatch depth ({}) reached while handling '{}'", MAX_DISPATCH_DEPTH, name);
+        LOG(Log::WARN, "[LuaEvents] max dispatch depth ({}) reached while handling '{}'", MAX_DISPATCH_DEPTH, name);
         return;
     }
 
@@ -40,7 +40,7 @@ void CLuaEventHandler::dispatch(const std::string& name, int nargs, const std::f
 
         if (m_activeHandles.contains(handle)) {
             if (m_reentrancyWarnedHandles.emplace(handle).second)
-                Log::logger->log(Log::WARN, "[LuaEvents] suppressed recursive hl.on(\"{}\") callback invocation", name);
+                LOG(Log::WARN, "[LuaEvents] suppressed recursive hl.on(\"{}\") callback invocation", name);
             continue;
         }
 
@@ -116,6 +116,12 @@ CLuaEventHandler::CLuaEventHandler(lua_State* L) : m_lua(L) {
     }));
     m_listeners.push_back(
         bus()->m_events.window.bell.listen([this](PHLWINDOW w, Event::SCallbackInfo&) { dispatch("window.bell", 1, [&](lua_State* L) { CLuaWindow::push(L, w); }); }));
+    m_listeners.push_back(bus()->m_events.window.minimize.listen([this](PHLWINDOW w, bool s) {
+        dispatch("window.minimize", 2, [&](lua_State* L) {
+            CLuaWindow::push(L, w);
+            lua_pushboolean(L, s);
+        });
+    }));
 
     m_listeners.push_back(bus()->m_events.layer.opened.listen([this](PHLLS ls) { dispatch("layer.opened", 1, [&](lua_State* L) { CLuaLayerSurface::push(L, ls); }); }));
     m_listeners.push_back(bus()->m_events.layer.closed.listen([this](PHLLS ls) { dispatch("layer.closed", 1, [&](lua_State* L) { CLuaLayerSurface::push(L, ls); }); }));
@@ -151,6 +157,7 @@ CLuaEventHandler::CLuaEventHandler(lua_State* L) : m_lua(L) {
     }));
 
     m_listeners.push_back(bus()->m_events.config.reloaded.listen([this] { dispatch("config.reloaded", 0, [](lua_State* L) {}); }));
+    m_listeners.push_back(bus()->m_events.config.preReload.listen([this] { dispatch("config.unload", 0, [](lua_State* L) {}); }));
     m_listeners.push_back(bus()->m_events.config.props_refreshed.listen(
         [this](const bool execdAsScheduled) { dispatch("config.props_refreshed", 1, [&](lua_State* L) { lua_pushboolean(L, sc<lua_Integer>(execdAsScheduled)); }); }));
 
@@ -165,17 +172,20 @@ CLuaEventHandler::CLuaEventHandler(lua_State* L) : m_lua(L) {
     }));
 
     m_listeners.push_back(bus()->m_events.start.listen([this]() { dispatch("hyprland.start", 0, [](lua_State* L) {}); }));
-    m_listeners.push_back(bus()->m_events.exit.listen([this]() { dispatch("hyprland.shutdown", 0, [](lua_State* L) {}); }));
+    m_listeners.push_back(bus()->m_events.exit.listen([this]() {
+        dispatch("config.unload", 0, [](lua_State* L) {});
+        dispatch("hyprland.shutdown", 0, [](lua_State* L) {});
+    }));
 
     m_listeners.push_back(bus()->m_events.pluginEventAdded.listen([this](SP<Event::CEventBus::CCustomEvent> event) {
         auto ret = addCustomEvent(event);
         if (!ret)
-            Log::logger->log(Log::ERR, "failed to register plugin event for lua {}: {}", event->m_name, ret.error());
+            LOG(Log::ERR, "failed to register plugin event for lua {}: {}", event->m_name, ret.error());
     }));
     m_listeners.push_back(bus()->m_events.pluginEventRemoved.listen([this](const std::string& name) {
         auto ret = removeCustomEvent(name);
         if (!ret)
-            Log::logger->log(Log::ERR, "failed to unregister plugin event for lua {}: {}", name, ret.error());
+            LOG(Log::ERR, "failed to unregister plugin event for lua {}: {}", name, ret.error());
     }));
 
     m_listeners.push_back(bus()->m_events.input.keyboard.key.listen([this](const IKeyboard::SKeyEvent& keyEvent, const SCallbackInfo& _) {
@@ -281,6 +291,7 @@ std::unordered_set<std::string> CLuaEventHandler::knownEvents() {
         "window.update_rules",
         "window.move_to_workspace",
         "window.bell",
+        "window.minimize",
         "layer.opened",
         "layer.closed",
         "monitor.added",
@@ -294,6 +305,7 @@ std::unordered_set<std::string> CLuaEventHandler::knownEvents() {
         "workspace.move_to_monitor",
         "config.reloaded",
         "config.props_refreshed",
+        "config.unload",
         "keybinds.submap",
         "screenshare.state",
         "hyprland.start",
