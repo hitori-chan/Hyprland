@@ -226,6 +226,54 @@ void CMonitor::onConnect(bool noRule) {
 
         onDisconnect(true);
 
+        // onDisconnect bails out early when the monitor is already disabled
+        // (or shutting down), leaving its workspaces and possibly the
+        // monitor focus pointing at this monitor. The monitor is removed
+        // from the state layer below, so that residue must not survive:
+        // move the workspaces to a surviving monitor exactly like the
+        // enabled path does, and drop the focus if it still points here.
+        // Otherwise the workspaces keep resolving through the global
+        // workspace-by-id lookup and steer focus to a monitor that no
+        // longer exists (leaked by `output remove` on a disabled output).
+        if (!g_pCompositor->m_isShuttingDown) {
+            PHLMONITOR pBackup = nullptr;
+            for (auto const& m : State::monitorState()->monitors()) {
+                if (m.get() != this) {
+                    pBackup = m;
+                    break;
+                }
+            }
+
+            std::vector<PHLWORKSPACE> wspToMove;
+            for (auto const& w : State::workspaceState()->workspaces()) {
+                if (w->m_monitor == m_self || !w->m_monitor)
+                    wspToMove.emplace_back(w.lock());
+            }
+
+            for (auto const& w : wspToMove) {
+                if (!m_isUnsafeFallback && w && w->m_lastMonitor.empty())
+                    w->m_lastMonitor = m_name;
+            }
+
+            if (pBackup) {
+                for (auto const& w : wspToMove) {
+                    State::workspacePlacementController()->moveWorkspaceToMonitor(w, pBackup);
+                    Animation::Workspace::startAnimation(w, Animation::Workspace::ANIMATION_TYPE_IN, true, true);
+                }
+
+                if (m_activeWorkspace)
+                    m_activeWorkspace->m_visible = false;
+                m_activeWorkspace.reset();
+
+                if (Desktop::focusState()->monitor() == m_self)
+                    Desktop::focusState()->rawMonitorFocus(pBackup);
+            } else {
+                Desktop::focusState()->surface().reset();
+                Desktop::focusState()->window().reset();
+                Desktop::focusState()->monitor().reset();
+            }
+        }
+
         m_output              = nullptr;
         m_renderingInitPassed = false;
 
