@@ -258,6 +258,14 @@ CXDGToplevelResource::CXDGToplevelResource(SP<CXdgToplevel> resource_, SP<CXDGSu
             return;
         }
 
+        // A client we are telling maximized pongs the state it was told.
+        // Post-map events run as toggles, so the confirm would flip the
+        // window's native maximize state. In this fork the maximized
+        // tell-state is only ever set by plugin code (the compositor
+        // backend path is stubbed), where the pong is a no-op.
+        if (std::ranges::find(m_pendingApply.states, XDG_TOPLEVEL_STATE_MAXIMIZED) != m_pendingApply.states.end())
+            return;
+
         m_state.requestsMaximize = true;
         m_events.stateChanged.emit();
         m_state.requestsMaximize.reset();
