@@ -131,6 +131,11 @@ namespace Desktop::View {
         virtual void                   setResizing(bool resizing)                                                         = 0;
         virtual bool                   setSuspended(bool suspended)                                                       = 0;
         virtual void                   setMinimized(bool minimized)                                                       = 0;
+
+        // fork: pre-map maximize request recorded in xdg-shell; consumed at map
+        virtual std::optional<bool>    takeWantsInitialMaximize()                                                        {
+            return std::nullopt;
+        }
         virtual void                   restackToTop()                                                                     = 0;
         virtual void                   close()                                                                            = 0;
         virtual void                   ping()                                                                             = 0;

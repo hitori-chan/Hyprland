@@ -40,14 +40,14 @@ namespace Desktop::View {
         void                   setResizing(bool resizing) override;
         bool                   setSuspended(bool suspended) override;
         void                   setMinimized(bool minimized) override;
+        std::optional<bool>    takeWantsInitialMaximize() override;
         void                   restackToTop() override;
         void                   close() override;
         void                   ping() override;
 
         // Public (private upstream): plugin ABI surface. The ABI-locked
         // hyprland-plugins suite reads the client-facing xdg resource through
-        // this; weak ref, safe to lock and discard (see docs/audit-tracking.md
-        // in the plugin repo).
+        // this; weak ref, safe to lock and discard.
         WP<CXDGSurfaceResource>    m_resource;
 
       private:

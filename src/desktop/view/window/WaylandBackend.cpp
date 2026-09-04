@@ -400,6 +400,17 @@ void CWaylandBackend::setMinimized(bool) {
     ;
 }
 
+std::optional<bool> CWaylandBackend::takeWantsInitialMaximize() {
+    if (const auto RESOURCE = m_resource.lock())
+        if (const auto TOPLEVEL = RESOURCE->m_toplevel.lock()) {
+            const auto V = TOPLEVEL->m_wantsInitialMaximize;
+            TOPLEVEL->m_wantsInitialMaximize.reset();
+            return V;
+        }
+
+    return std::nullopt;
+}
+
 void CWaylandBackend::restackToTop() {
     ;
 }
