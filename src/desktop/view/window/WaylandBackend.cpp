@@ -42,7 +42,7 @@ static SBackendTraits traitsFrom(const SP<CXDGToplevelResource>& toplevel) {
     };
 }
 
-static SGeometryHints geometryHintsFrom(const SP<CXDGSurfaceResource>& resource, eBackendState state, const Vector2D& surfSize) {
+static SGeometryHints geometryHintsFrom(const SP<CXDGSurfaceResource>& resource, eBackendState state) {
     const auto TOPLEVEL = resource ? resource->m_toplevel.lock() : nullptr;
     if (!TOPLEVEL)
         return {};
@@ -50,28 +50,18 @@ static SGeometryHints geometryHintsFrom(const SP<CXDGSurfaceResource>& resource,
     const auto& TOPLEVEL_STATE = state == eBackendState::BACKEND_STATE_PENDING ? TOPLEVEL->m_pending : TOPLEVEL->m_current;
     const auto& XDG_STATE      = state == eBackendState::BACKEND_STATE_PENDING ? resource->m_pending : resource->m_current;
 
-    // Clients express min/max sizes in the set_window_geometry frame (the
-    // content area), which for a CSD shadow surface is inset from the
-    // surface on ALL sides. Convert the hints to the surface frame by
-    // adding the full CSD margin (surface size - geometry size); adding
-    // only the top-left offset undersizes the box and clips the shadow.
-    const auto GEOMSIZE = XDG_STATE.geometry.size();
-    Vector2D   MARGIN   = XDG_STATE.geometry.pos();
-    if (GEOMSIZE.x > 5 && GEOMSIZE.y > 5 && surfSize.x > 5 && surfSize.y > 5)
-        MARGIN = (surfSize - GEOMSIZE).clamp({0, 0}, {1e9, 1e9});
-
     Vector2D    minSize;
     if (TOPLEVEL_STATE.minSize.x > 1)
-        minSize.x = TOPLEVEL_STATE.minSize.x + MARGIN.x;
+        minSize.x = TOPLEVEL_STATE.minSize.x + XDG_STATE.geometry.pos().x;
     if (TOPLEVEL_STATE.minSize.y > 1)
-        minSize.y = TOPLEVEL_STATE.minSize.y + MARGIN.y;
+        minSize.y = TOPLEVEL_STATE.minSize.y + XDG_STATE.geometry.pos().y;
     minSize = minSize.clamp({1, 1});
 
     Vector2D maxSize;
     if (TOPLEVEL_STATE.maxSize.x > 1)
-        maxSize.x = TOPLEVEL_STATE.maxSize.x + MARGIN.x;
+        maxSize.x = TOPLEVEL_STATE.maxSize.x + XDG_STATE.geometry.pos().x;
     if (TOPLEVEL_STATE.maxSize.y > 1)
-        maxSize.y = TOPLEVEL_STATE.maxSize.y + MARGIN.y;
+        maxSize.y = TOPLEVEL_STATE.maxSize.y + XDG_STATE.geometry.pos().y;
     if (maxSize.x < 5)
         maxSize.x = std::numeric_limits<double>::max();
     if (maxSize.y < 5)
@@ -267,11 +257,8 @@ SClientGeometry CWaylandBackend::geometry() const {
 
 SGeometryHints CWaylandBackend::geometryHints(eBackendState state) const {
     const auto RESOURCE = m_resource.lock();
-    const auto SURFACE  = m_surface.lock();
-    const auto SURFSIZE = SURFACE ? (state == eBackendState::BACKEND_STATE_PENDING ? SURFACE->m_pending.size : SURFACE->m_current.size)
-                                  : Vector2D{};
     if (RESOURCE && RESOURCE->m_toplevel)
-        return geometryHintsFrom(RESOURCE, state, SURFSIZE);
+        return geometryHintsFrom(RESOURCE, state);
 
     return state == eBackendState::BACKEND_STATE_PENDING ? m_pendingGeometryHints : m_currentGeometryHints;
 }
@@ -462,11 +449,8 @@ void CWaylandBackend::updateGeometryHints() {
     if (!RESOURCE)
         return;
 
-    const auto SURFACE = m_surface.lock();
-    m_currentGeometryHints =
-        geometryHintsFrom(RESOURCE, eBackendState::BACKEND_STATE_CURRENT, SURFACE ? SURFACE->m_current.size : Vector2D{});
-    m_pendingGeometryHints =
-        geometryHintsFrom(RESOURCE, eBackendState::BACKEND_STATE_PENDING, SURFACE ? SURFACE->m_pending.size : Vector2D{});
+    m_currentGeometryHints = geometryHintsFrom(RESOURCE, eBackendState::BACKEND_STATE_CURRENT);
+    m_pendingGeometryHints = geometryHintsFrom(RESOURCE, eBackendState::BACKEND_STATE_PENDING);
 }
 
 void CWaylandBackend::updateMetadata(bool emitEvent) {
