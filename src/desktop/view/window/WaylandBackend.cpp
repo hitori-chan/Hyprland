@@ -50,18 +50,26 @@ static SGeometryHints geometryHintsFrom(const SP<CXDGSurfaceResource>& resource,
     const auto& TOPLEVEL_STATE = state == eBackendState::BACKEND_STATE_PENDING ? TOPLEVEL->m_pending : TOPLEVEL->m_current;
     const auto& XDG_STATE      = state == eBackendState::BACKEND_STATE_PENDING ? resource->m_pending : resource->m_current;
 
+    // A pinned axis (min == max) is a strict client size request. Adding the
+    // CSD geometry offset there would inflate the box beyond the request,
+    // leaving a wallpaper-visible strip where the client paints nothing
+    // (e.g. the discord updater splash: fixed 300x350, 10px offset,
+    // transparent buffer margin).
+    const bool PINNED_X = TOPLEVEL_STATE.minSize.x > 1 && TOPLEVEL_STATE.maxSize.x > 1 && TOPLEVEL_STATE.minSize.x == TOPLEVEL_STATE.maxSize.x;
+    const bool PINNED_Y = TOPLEVEL_STATE.minSize.y > 1 && TOPLEVEL_STATE.maxSize.y > 1 && TOPLEVEL_STATE.minSize.y == TOPLEVEL_STATE.maxSize.y;
+
     Vector2D    minSize;
     if (TOPLEVEL_STATE.minSize.x > 1)
-        minSize.x = TOPLEVEL_STATE.minSize.x + XDG_STATE.geometry.pos().x;
+        minSize.x = TOPLEVEL_STATE.minSize.x + (PINNED_X ? 0 : XDG_STATE.geometry.pos().x);
     if (TOPLEVEL_STATE.minSize.y > 1)
-        minSize.y = TOPLEVEL_STATE.minSize.y + XDG_STATE.geometry.pos().y;
+        minSize.y = TOPLEVEL_STATE.minSize.y + (PINNED_Y ? 0 : XDG_STATE.geometry.pos().y);
     minSize = minSize.clamp({1, 1});
 
     Vector2D maxSize;
     if (TOPLEVEL_STATE.maxSize.x > 1)
-        maxSize.x = TOPLEVEL_STATE.maxSize.x + XDG_STATE.geometry.pos().x;
+        maxSize.x = TOPLEVEL_STATE.maxSize.x + (PINNED_X ? 0 : XDG_STATE.geometry.pos().x);
     if (TOPLEVEL_STATE.maxSize.y > 1)
-        maxSize.y = TOPLEVEL_STATE.maxSize.y + XDG_STATE.geometry.pos().y;
+        maxSize.y = TOPLEVEL_STATE.maxSize.y + (PINNED_Y ? 0 : XDG_STATE.geometry.pos().y);
     if (maxSize.x < 5)
         maxSize.x = std::numeric_limits<double>::max();
     if (maxSize.y < 5)
