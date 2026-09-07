@@ -281,7 +281,14 @@ SP<CWLSurfaceResource> CViewHitTester::windowSurfaceAt(const Vector2D& pos, PHLW
         return PPOPUP->wlSurface()->resource();
     }
 
-    auto [surf, local] = window->wlSurface()->resource()->at(pos - window->position(Desktop::View::IGeometric::GEOMETRIC_GOAL), true);
+    Vector2D geometryOffset;
+    if (!window->backend().isX11()) {
+        const auto& GEOM = window->backend().geometry();
+        if (GEOM.box.w > 0 && GEOM.box.h > 0)
+            geometryOffset = GEOM.box.pos();
+    }
+
+    auto [surf, local] = window->wlSurface()->resource()->at(pos - window->position(Desktop::View::IGeometric::GEOMETRIC_GOAL) + geometryOffset, true);
     if (surf) {
         surfaceLocal = local;
         return surf;

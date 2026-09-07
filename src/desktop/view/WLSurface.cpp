@@ -3,6 +3,7 @@
 #include "window/Window.hpp"
 #include "../../protocols/core/Compositor.hpp"
 #include "../../protocols/LayerShell.hpp"
+#include "../../protocols/XDGShell.hpp"
 #include "../../protocols/FractionalScale.hpp"
 #include "../../render/Renderer.hpp"
 
@@ -102,6 +103,7 @@ CRegion CWLSurface::computeDamage(const std::optional<CBox>& box) const {
         return {};
 
     std::optional<Vector2D> boxSize;
+    Vector2D                 geometryOffset = {};
     if (box.has_value()) {
         boxSize = box->size();
 
@@ -109,6 +111,12 @@ CRegion CWLSurface::computeDamage(const std::optional<CBox>& box) const {
             const auto WINDOW = dynamicPointerCast<CWindow>(m_view.lock());
             if (!WINDOW)
                 return {};
+
+            if (!WINDOW->backend().isX11()) {
+                const auto& GEOMETRY = WINDOW->backend().geometry();
+                if (GEOMETRY.box.w > 0 && GEOMETRY.box.h > 0)
+                    geometryOffset = GEOMETRY.box.pos();
+            }
 
             boxSize = WINDOW->backend().surfaceLocalToBuffer(boxSize.value());
         }
@@ -130,6 +138,13 @@ CRegion CWLSurface::computeDamage(const std::optional<CBox>& box) const {
 
     // go from buffer coords in the damage to hl logical
     damage.scale(SURFSIZE / BUFSIZE);
+
+    // Align native xdg damage to the client-claimed window geometry: the
+    // surface may carry invisible CSD margins, so shift the damage by the
+    // geometry origin (hl logical space, matching the translate the old
+    // layout applied right after the surface scale).
+    if (geometryOffset != Vector2D{})
+        damage.translate(-geometryOffset);
 
     if (boxSize)
         damage.intersect(CBox{{}, boxSize.value()});
