@@ -58,6 +58,7 @@
 #include "../../../pointer/PointerController.hpp"
 #include "../../../managers/fullscreen/FullscreenController.hpp"
 #include "../../../layout/algorithm/Algorithm.hpp"
+#include "../../../layout/algorithm/FloatingAlgorithm.hpp"
 #include "../../../layout/space/Space.hpp"
 #include "../../../layout/LayoutManager.hpp"
 #include "../../../layout/target/WindowTarget.hpp"
@@ -878,6 +879,24 @@ void CWindow::requestClientFullscreen(const SClientFullscreenRequest& request) {
     }
 }
 
+void CWindow::requestClientSize() {
+    if (m_backend->isX11())
+        return;
+
+    m_backend->requestClientSize();
+}
+
+void CWindow::updateClientMaximizedState() {
+    if (m_backend->isX11())
+        return;
+
+    // tiled windows are told they're maximized so they don't draw CSD;
+    // floating windows must get their real state — a client never told it
+    // left maximized (notably GTK) stays in maximized mode and stops
+    // tracking its normal geometry entirely.
+    m_backend->setMaximized(!isFloating() || Fullscreen::controller()->getFullscreenModes(m_self.lock()).client == Fullscreen::FSMODE_MAXIMIZED);
+}
+
 void CWindow::onUpdateMeta(const SBackendMetadata& metadata) {
     const auto& NEWTITLE = metadata.title;
     bool        doUpdate = false;
@@ -1497,6 +1516,16 @@ void CWindow::mapWindow() {
         requestedClientFSMode.reset();
 
     if (!(m_state & WINDOW_STATE_NO_INITIAL_FOCUS) && (requestedInternalFSMode.has_value() || requestedClientFSMode.has_value() || requestedFSState.has_value())) {
+        // mapping straight into fullscreen: the pre-map commit's size was never
+        // a windowed frame on screen, whatever it was — not a restore target.
+        // Only an EFFECTIVE mode latches: a request stripped to FSMODE_NONE
+        // (suppressevent, fullscreenstate 0 0) maps a plain windowed window.
+        const bool WANTSFS = requestedInternalFSMode.value_or(Fullscreen::FSMODE_NONE) != Fullscreen::FSMODE_NONE ||
+            requestedClientFSMode.value_or(Fullscreen::FSMODE_NONE) != Fullscreen::FSMODE_NONE ||
+            (requestedFSState.has_value() && (requestedFSState->internal != Fullscreen::FSMODE_NONE || requestedFSState->client != Fullscreen::FSMODE_NONE));
+        if (isFloating() && WANTSFS)
+            m_bornFullscreen = true;
+
         // fix fullscreen on requested (basically do a switcheroo)
         std::optional<bool> wasFullscreenLayoutHandled = std::nullopt;
         if (Fullscreen::controller()->hasFullscreen(m_workspace)) {
@@ -1515,6 +1544,8 @@ void CWindow::mapWindow() {
         else if (requestedInternalFSMode.has_value() || requestedClientFSMode.has_value())
             Fullscreen::controller()->setFullscreenMode(m_self.lock(), requestedInternalFSMode, requestedClientFSMode, wasFullscreenLayoutHandled);
     }
+
+    updateClientMaximizedState();
 
     // recheck idle inhibitors
     g_pInputManager->recheckIdleInhibitorStatus();
@@ -1727,13 +1758,18 @@ void CWindow::commitWindow(bool initialCommit) {
         // try to calculate static rules already for any floats
         m_ruleApplicator->readStaticRules(true);
 
-        const Vector2D predSize = !m_ruleApplicator->static_.floating.value_or(false) // no float rule
-                && !m_target->floating()                                              // not floating
-                && !m_backend->parent()                                               // no parents
-                && !suggestsFloat(true)                                               // should not be floated
-            ?
-            g_layoutManager->predictSizeForNewTiledTarget().value_or(Vector2D{}) :
-            Vector2D{};
+        const bool TILED = !m_ruleApplicator->static_.floating.value_or(false) // no float rule
+            && !m_target->floating()                                           // not floating
+            && !m_backend->parent()                                            // no parents
+            && !suggestsFloat(true);                                           // should not be floated
+
+        Vector2D predSize = TILED ? g_layoutManager->predictSizeForNewTiledTarget().value_or(Vector2D{}) : Vector2D{};
+
+        // a floating window's initial configure otherwise carries 0x0 ("you
+        // decide"): let a listener suggest the size the window is born at.
+        // Toplevel state (app_id, min/max) is already current here.
+        if (!TILED)
+            Event::bus()->m_events.window.predictSize.emit(m_self.lock(), predSize);
 
         LOG(Log::DEBUG, "Layout predicts size {} for {}", predSize, m_self.lock());
 
@@ -1745,7 +1781,45 @@ void CWindow::commitWindow(bool initialCommit) {
         return;
 
     if (!m_backend->isX11() && !Fullscreen::controller()->isFullscreen(m_self.lock()) && m_target->floating()) {
-        const auto HINTS = m_backend->geometryHints(eBackendState::BACKEND_STATE_CURRENT);
+        const auto HINTS     = m_backend->geometryHints(eBackendState::BACKEND_STATE_CURRENT);
+        const bool HAS_HINTS = HINTS.minSize.has_value() && HINTS.maxSize.has_value();
+        const auto MINSIZE   = HINTS.minSize.value_or(Vector2D{});
+        const auto MAXSIZE   = HINTS.maxSize.value_or(Vector2D{});
+
+        if (m_sizeFromClientSerial && m_sizeFromClientAcked) {
+            // the client answered our 0x0 configure: adopt the size it chose,
+            // keeping the window centered where it was.
+            const auto GEOMBOX = m_backend->geometry().box;
+            auto       size    = (GEOMBOX.w > 5 && GEOMBOX.h > 5) ? GEOMBOX.size() : m_wlSurface->resource()->m_current.size;
+
+            if (HAS_HINTS)
+                size = size.clamp(MINSIZE, MAXSIZE);
+
+            if (size.x > 5 && size.y > 5) {
+                m_sizeFromClientSerial = 0;
+                m_sizeFromClientAcked  = false;
+
+                // an answer pinned at the client's own minimum (min != max, so
+                // not a fixed-size window) means it has no real opinion — GTK's
+                // normal-size memory doesn't survive a born-maximized startup.
+                // Give it the fresh-spawn size instead.
+                if (HAS_HINTS && size.x <= MINSIZE.x + 1 && size.y <= MINSIZE.y + 1 && MINSIZE != MAXSIZE)
+                    size = Layout::FLOATING_DEFAULT_SIZE;
+
+                const auto CENTER = m_realPosition->goal() + m_realSize->goal() / 2.F;
+                g_layoutManager->setTargetGeom(CBox{CENTER - size / 2.F, size}, m_target);
+                m_target->rememberFloatingSize(size);
+            }
+        }
+
+        if (!m_everWindowed) {
+            // the same pinned-at-min heuristic the adoption above uses:
+            // placeholder frames don't count as a windowed presentation
+            const auto SIZE = m_wlSurface->resource()->m_current.size;
+            if (SIZE.x > 5 && SIZE.y > 5 && !(HAS_HINTS && SIZE.x <= MINSIZE.x + 1 && SIZE.y <= MINSIZE.y + 1 && MINSIZE != MAXSIZE))
+                m_everWindowed = true;
+        }
+
         if (clampWindowSize(HINTS.minSize, HINTS.maxSize))
             g_pHyprRenderer->damageWindow(m_self.lock());
     }

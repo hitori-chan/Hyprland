@@ -291,7 +291,17 @@ void CWindowTarget::setFloating(bool x) {
     m_floating = x;
     m_window->m_state &= ~Desktop::View::WINDOW_STATE_PINNED;
 
+    if (!x) {
+        // the client-size grant is floating-only: tiled mid-grant, the armed
+        // serial would freeze the ack latch (every ack early-returns) for the
+        // rest of the window's tiled life and pending configures would only
+        // accumulate
+        m_window->m_sizeFromClientSerial = 0;
+        m_window->m_sizeFromClientAcked  = false;
+    }
+
     m_window->m_ruleApplicator->propertiesChanged(Desktop::Rule::RULE_PROP_FLOATING);
+    m_window->updateClientMaximizedState();
 }
 
 void CWindowTarget::setFloatingInitial(bool x) {

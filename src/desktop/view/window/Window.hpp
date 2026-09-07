@@ -243,6 +243,19 @@ namespace Desktop::View {
         bool                cantLockCursor() const;
         void                sendClose();
         void                requestClientFullscreen(const SClientFullscreenRequest& request);
+        void                requestClientSize();
+        void                updateClientMaximizedState();
+
+        // born-fullscreen tracking: a floating window that maps straight into
+        // fullscreen has no real windowed frame on record; when it exits, ask
+        // the client for its size (0x0 configure) and adopt the answer
+        // (m_sizeFromClientSerial/Acked latch the in-flight grant, see
+        // commitWindow + CWaylandBackend::onAck). Accessed directly from the
+        // layout + fullscreen layers, as in the pre-refactor CWindow.
+        bool     m_bornFullscreen       = false;
+        bool     m_everWindowed         = false;
+        uint32_t m_sizeFromClientSerial = 0;
+        bool     m_sizeFromClientAcked  = false;
 
         CBox                getWindowMainSurfaceBox() const {
             return geometricBox(GEOMETRIC_CURRENT);
@@ -291,6 +304,7 @@ namespace Desktop::View {
         UP<CWindowPresentation>      m_presentation;
         UP<CWindowEffectsController> m_effects;
         SP<Layout::CWindowTarget>    m_target;
+
         struct {
             CHyprSignalListener map;
             CHyprSignalListener unmap;

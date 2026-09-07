@@ -514,6 +514,7 @@ void CFullscreenController::setWindowFullscreenModeClient(const PHLWINDOW window
     FS_HANDLER->setTargetFullscreenModeClient(window->windowTarget(), mode);
 
     window->backend().setFullscreen(mode == FSMODE_FULLSCREEN);
+    window->updateClientMaximizedState();
 }
 
 WP<IFullscreenHandler> CFullscreenController::getFsHandler(const PHLWINDOW window, std::optional<bool> layoutHandled) {
