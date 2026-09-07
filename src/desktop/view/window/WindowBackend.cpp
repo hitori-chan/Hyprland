@@ -30,3 +30,7 @@ std::optional<Vector2D> CWindowConfigureAckTracker::acknowledge(uint32_t serial)
 bool CWindowConfigureAckTracker::empty() const {
     return m_pending.empty();
 }
+
+void CWindowConfigureAckTracker::clear() {
+    m_pending.clear();
+}

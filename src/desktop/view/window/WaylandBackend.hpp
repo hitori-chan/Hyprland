@@ -33,15 +33,22 @@ namespace Desktop::View {
 
         void                   configure(const CBox& logicalBox, PHLMONITOR preferredMonitor, bool force = false) override;
         void                   acknowledgeConfigure(const CBox& clientBox) override;
+        void                   requestClientSize() override;
         void                   setActive(bool active) override;
         void                   setFullscreen(bool fullscreen) override;
         void                   setMaximized(bool maximized) override;
         void                   setResizing(bool resizing) override;
         bool                   setSuspended(bool suspended) override;
         void                   setMinimized(bool minimized) override;
+        std::optional<bool>    takeWantsInitialMaximize() override;
         void                   restackToTop() override;
         void                   close() override;
         void                   ping() override;
+
+        // Public (private upstream): plugin ABI surface. The ABI-locked
+        // hyprland-plugins suite reads the client-facing xdg resource through
+        // this; weak ref, safe to lock and discard.
+        WP<CXDGSurfaceResource>    m_resource;
 
       private:
         void                       attach(PHLWINDOWREF window) override;
@@ -51,7 +58,6 @@ namespace Desktop::View {
         void                       updateTraits(bool emitEvent);
         void                       onAck(uint32_t serial);
 
-        WP<CXDGSurfaceResource>    m_resource;
         WP<CWLSurfaceResource>     m_surface;
         PHLWINDOWREF               m_window;
 

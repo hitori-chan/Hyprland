@@ -351,6 +351,10 @@ void CX11Backend::acknowledgeConfigure(const CBox& clientBox) {
     m_pendingReportedSize = clientBox.size();
 }
 
+void CX11Backend::requestClientSize() {
+    // X11 clients own their normal geometry; nothing to request
+}
+
 void CX11Backend::setActive(bool active) {
     if (const auto SURFACE = m_xwaylandSurface.lock())
         SURFACE->activate(active);

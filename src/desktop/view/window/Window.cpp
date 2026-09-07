@@ -1228,6 +1228,10 @@ void CWindow::mapWindow() {
     requestedClientFSMode                                        = PENDING_CLIENT_FS.mode;
     if (!requestedClientFSMode.has_value() && m_backend->isX11() && TRAITS.fullscreen)
         requestedClientFSMode = Fullscreen::FSMODE_FULLSCREEN;
+    // pre-map maximize request (see XDGShell.cpp); fullscreen wins
+    if (!requestedClientFSMode.has_value())
+        if (const auto INITIAL_MAXIMIZE = m_backend->takeWantsInitialMaximize())
+            requestedClientFSMode = Fullscreen::FSMODE_MAXIMIZED;
     MONITORID requestedFSMonitor = PENDING_CLIENT_FS.monitor.value_or(MONITOR_INVALID);
 
     auto      setStaticProps = [&]() {
