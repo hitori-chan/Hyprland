@@ -51,6 +51,7 @@ class CInputCaptureResource {
     void onDisable();
     void onRelease(uint32_t activationId, double x, double y);
     void onClearBarriers();
+    void onEisDisconnect();
     void startKeyRepeat(uint32_t key);
     void stopKeyRepeat();
     bool keyRepeats(uint32_t key);
@@ -104,6 +105,7 @@ class CInputCaptureProtocol : public IWaylandProtocol {
     void forceRelease();
 
     void release();
+    void release(const std::string& sessionId);
 
   private:
     std::vector<UP<CHyprlandInputCaptureManagerV1>> m_vManagers;

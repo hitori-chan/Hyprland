@@ -1,6 +1,8 @@
 #pragma once
 
 #include <libeis.h>
+#include <functional>
+#include <optional>
 #include <string>
 #include <wayland-server-core.h>
 
@@ -14,6 +16,7 @@ class CEis {
 
     void startEmulating(int activationId);
     void stopEmulating();
+    void setOnClientDisconnect(std::function<void()> callback);
 
     void resetKeyboard();
     void resetPointer();
@@ -47,16 +50,22 @@ class CEis {
         eis_device* m_keyboard = nullptr;
     } m_client;
 
-    int              onEvent(eis_event* e);
-    int              pollEvents();
-    void             ensurePointer();
-    void             ensureKeyboard();
-    SKeymap          getKeymap();
-    void             clearPointer();
-    void             clearKeyboard();
+    int     onEvent(eis_event* e);
+    int     pollEvents();
+    void    ensurePointer();
+    void    ensureKeyboard();
+    SKeymap getKeymap();
+    void    clearPointer();
+    void    clearKeyboard();
 
-    bool             m_stop   = false;
-    eis*             m_eisCtx = nullptr;
+    bool    m_stop   = false;
+    eis*    m_eisCtx = nullptr;
 
-    wl_event_source* m_eventSource = nullptr;
+    // A device may be created after capture starts, or recreated when the
+    // compositor's keymap/output topology changes. Keep the active sequence
+    // in the EIS owner so every replacement resumes the same capture.
+    std::optional<int>    m_emulationSequence;
+    std::function<void()> m_onClientDisconnect;
+
+    wl_event_source*      m_eventSource = nullptr;
 };
