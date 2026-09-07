@@ -2,12 +2,14 @@
 
 #include <string>
 #include <vector>
+#include <cstdint>
 
 struct SPlugin {
     std::string name;
     std::string filename;
-    bool        enabled = false;
-    bool        failed  = false;
+    bool        enabled  = false;
+    bool        failed   = false;
+    size_t      priority = SIZE_MAX; // load order within the repo (manifest order)
 };
 
 struct SPluginRepository {
