@@ -6,6 +6,7 @@
 #include "../../view/window/WindowPresentation.hpp"
 #include "../../types/OverridableVar.hpp"
 #include "../../../event/EventBus.hpp"
+#include "../../../helpers/MiscFunctions.hpp"
 #include "desktop/rule/windowRule/WindowRuleEffectContainer.hpp"
 
 #include <string>
@@ -137,10 +138,25 @@ CWindowRuleApplicator::SRuleResult CWindowRuleApplicator::applyDynamicRule(const
                 break;
             }
             case WINDOW_RULE_EFFECT_BORDER_COLOR: {
-                const auto& borderColor   = std::get<SBorderColorRule>(value);
-                m_activeBorderColor.first = Types::COverridableVar(borderColor.active, Types::PRIORITY_WINDOW_RULE);
+                const auto& borderColor = std::get<SBorderColorRule>(value);
+
+                if (borderColor.active)
+                    m_activeBorderColor.first = Types::COverridableVar(*borderColor.active, Types::PRIORITY_WINDOW_RULE);
                 if (borderColor.inactive)
                     m_inactiveBorderColor.first = Types::COverridableVar(*borderColor.inactive, Types::PRIORITY_WINDOW_RULE);
+
+                if (rule->matches(Desktop::Rule::eRuleProperty::RULE_PROP_FOCUS, true)) {
+                    if (!borderColor.active && borderColor.inactive)
+                        m_activeBorderColor.first = Types::COverridableVar(*borderColor.inactive, Types::PRIORITY_WINDOW_RULE);
+                    else if (borderColor.active)
+                        m_activeBorderColor.first = Types::COverridableVar(*borderColor.active, Types::PRIORITY_WINDOW_RULE);
+                } else if (rule->matches(Desktop::Rule::eRuleProperty::RULE_PROP_FOCUS, false)) {
+                    if (!borderColor.inactive && borderColor.active)
+                        m_inactiveBorderColor.first = Types::COverridableVar(*borderColor.active, Types::PRIORITY_WINDOW_RULE);
+                    else if (borderColor.inactive)
+                        m_inactiveBorderColor.first = Types::COverridableVar(*borderColor.inactive, Types::PRIORITY_WINDOW_RULE);
+                }
+
                 m_activeBorderColor.second   = rule->getPropertiesMask();
                 m_inactiveBorderColor.second = rule->getPropertiesMask();
                 break;
