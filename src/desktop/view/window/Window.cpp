@@ -141,7 +141,7 @@ void CWindow::attachBackendListeners() {
     m_backendListeners.stateRequest      = m_backend->m_events.stateRequest.listen([this](const auto& request) { onUpdateState(request); });
     m_backendListeners.configureRequest  = m_backend->m_events.configureRequest.listen([this](const auto& box) { onConfigureRequest(box); });
     m_backendListeners.geometryChanged   = m_backend->m_events.geometryChanged.listen([this](const auto& box) { onGeometryChanged(box); });
-    m_backendListeners.activationRequest = m_backend->m_events.activationRequest.listen([this] { onActivationRequest(); });
+    m_backendListeners.urgencyRequest    = m_backend->m_events.urgencyRequest.listen([this] { onUrgencyRequest(); });
     m_backendListeners.moveRequest       = m_backend->m_events.moveRequest.listen([this] { onMoveRequest(); });
     m_backendListeners.resizeRequest     = m_backend->m_events.resizeRequest.listen([this](eBackendResizeEdge edge) { onResizeRequest(edge); });
     m_backendListeners.newPopup          = m_backend->m_events.newPopup.listen([this](const auto& popup) {
@@ -801,16 +801,23 @@ std::unordered_map<std::string, std::string> CWindow::getEnv() {
     return results;
 }
 
+void CWindow::onUrgencyRequest() {
+    if (m_hints & WINDOW_HINT_URGENT)
+        return; // already urgent; the hint clears when the window is focused
+
+    m_hints |= WINDOW_HINT_URGENT;
+
+    IPC::Socket2::sock()->postEvent({.event = "urgent", .data = std::format("{:x}", rc<uintptr_t>(this))});
+    Event::bus()->m_events.window.urgent.emit(m_self.lock());
+}
+
 void CWindow::activate(bool force) {
     if (Desktop::focusState()->window() == m_self)
         return;
 
     static auto PFOCUSONACTIVATE = CConfigValue<Config::INTEGER>("misc:focus_on_activate");
 
-    m_hints |= WINDOW_HINT_URGENT;
-
-    IPC::Socket2::sock()->postEvent({.event = "urgent", .data = std::format("{:x}", rc<uintptr_t>(this))});
-    Event::bus()->m_events.window.urgent.emit(m_self.lock());
+    onUrgencyRequest();
 
     if (!force && (!m_ruleApplicator->focusOnActivate().valueOr(*PFOCUSONACTIVATE) || m_requestSuppression.activateFocusOnly || m_requestSuppression.activate))
         return;
@@ -1889,30 +1896,6 @@ void CWindow::destroyWindow() {
     g_layoutManager->removeTarget(m_target);
 
     Desktop::windowState()->removeSafe(m_self.lock());
-}
-
-void CWindow::onActivationRequest() {
-    LOG(Log::DEBUG, "X11 Activate request for window {}", m_self.lock());
-
-    const auto TRAITS = m_backend->traits();
-    if (TRAITS.overrideRedirect) {
-
-        LOG(Log::DEBUG, "Unmanaged X11 {} requests activate", m_self.lock());
-
-        if (Desktop::focusState()->window() && Desktop::focusState()->window()->backend().pid() != m_backend->pid())
-            return;
-
-        if (!TRAITS.wantsFocus)
-            return;
-
-        Desktop::focusState()->fullWindowFocus(m_self.lock(), FOCUS_REASON_DESKTOP_STATE_CHANGE);
-        return;
-    }
-
-    if (m_self.lock() == Desktop::focusState()->window() || m_requestSuppression.activate)
-        return;
-
-    activate();
 }
 
 void CWindow::onMoveRequest() {

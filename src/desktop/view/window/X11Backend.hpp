@@ -83,7 +83,7 @@ namespace Desktop::View {
             CHyprSignalListener metadata;
             CHyprSignalListener configureRequest;
             CHyprSignalListener setGeometry;
-            CHyprSignalListener activate;
+            CHyprSignalListener urgency;
             CHyprSignalListener pong;
         } m_listeners;
     };

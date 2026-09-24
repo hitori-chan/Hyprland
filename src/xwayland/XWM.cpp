@@ -462,8 +462,12 @@ void CXWM::handleClientMessage(xcb_client_message_event_t* e) {
                     demandsAttention = true;
             }
 
-            if (demandsAttention)
-                XSURF->m_events.activate.emit();
+            if (demandsAttention) {
+                // EWMH: DEMANDS_ATTENTION is an urgency indication (Wine maps
+                // FlashWindowEx to it). It must mark the window urgent, never
+                // take focus from the window the user is using.
+                XSURF->m_events.urgency.emit();
+            }
 
             XSURF->m_events.stateChanged.emit();
         }
@@ -475,7 +479,13 @@ void CXWM::handleClientMessage(xcb_client_message_event_t* e) {
             XSURF->m_state.requestsMinimize = false;
         XSURF->m_events.stateChanged.emit();
     } else if (e->type == HYPRATOMS["_NET_ACTIVE_WINDOW"]) {
-        XSURF->m_events.activate.emit();
+        // X11 clients cannot authenticate a user gesture: Wine/Proton apps
+        // send this on every internal SetForegroundWindow (installers, game
+        // dialogs), which would steal focus under focus_on_activate. Urgency
+        // only; explicit activation is the token-validated xdg-activation
+        // protocol or a compositor dispatch (the tray re-focuses the app's
+        // window itself on click).
+        XSURF->m_events.urgency.emit();
     } else if (e->type == HYPRATOMS["XdndStatus"]) {
         if (m_dndDataOffers.empty() || !m_dndDataOffers.at(0)->getSource()) {
             LOG(Log::TRACE, "[xwm] Rejecting XdndStatus message: nothing to get");

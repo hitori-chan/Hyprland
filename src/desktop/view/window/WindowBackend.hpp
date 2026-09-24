@@ -151,7 +151,12 @@ namespace Desktop::View {
             CSignalT<SBackendStateRequest>   stateRequest;
             CSignalT<CBox>                   configureRequest;
             CSignalT<CBox>                   geometryChanged;
-            CSignalT<>                       activationRequest;
+
+            // Unauthenticated attention request from the X11 client itself
+            // (DEMANDS_ATTENTION, _NET_ACTIVE_WINDOW): urgency only, never a
+            // focus change. Explicit activation is xdg-activation (token-
+            // validated) or a compositor dispatch.
+            CSignalT<>                       urgencyRequest;
             CSignalT<>                       moveRequest;
             CSignalT<eBackendResizeEdge>     resizeRequest;
             CSignalT<>                       pong;

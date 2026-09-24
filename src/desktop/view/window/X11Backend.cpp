@@ -213,7 +213,7 @@ CX11Backend::CX11Backend(SP<CXWaylandSurface> surface) : m_xwaylandSurface(surfa
         updateGeometry(true);
         updateTraits(true);
     });
-    m_listeners.activate    = surface->m_events.activate.listen([this] { m_events.activationRequest.emit(); });
+    m_listeners.urgency     = surface->m_events.urgency.listen([this] { m_events.urgencyRequest.emit(); });
     m_listeners.pong        = surface->m_events.pong.listen([this] { m_events.pong.emit(); });
 }
 

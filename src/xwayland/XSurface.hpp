@@ -59,7 +59,10 @@ class CXWaylandSurface {
         CSignalT<>     commit;
         CSignalT<>     pong;
 
-        CSignalT<>     activate;
+        // EWMH attention/activation requests that must not take focus (X11
+        // pings from the app itself; explicit activation is the
+        // token-validated xdg-activation protocol or a compositor dispatch).
+        CSignalT<>     urgency;
     } m_events;
 
     struct {
