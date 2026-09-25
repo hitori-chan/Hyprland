@@ -310,7 +310,16 @@ void Workspace::CHLWorkspace::changeID(Workspace::SWorkspaceNumberedID id) {
 }
 
 void Workspace::CHLWorkspace::updateWindows() {
+    if (!m_space)
+        return;
+
+    // Regression guard: at shutdown the container state is cleared before wayland clients
+    // are destroyed, so a client-destroy unmap can drive this on a workspace whose targets
+    // are expired weak ptrs. t->window() on an expired target is a null-this virtual call.
     for (auto const& t : m_space->targets()) {
+        if (!t)
+            continue;
+
         if (t->window())
             t->window()->m_ruleApplicator->propertiesChanged(Desktop::Rule::RULE_PROP_ON_WORKSPACE);
     }
