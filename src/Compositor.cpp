@@ -585,10 +585,6 @@ void CCompositor::cleanup() {
 
     cleanEnvironment();
 
-    // unload all remaining plugins while the compositor is
-    // still in a normal working state.
-    g_pPluginSystem->unloadAllPlugins();
-
     State::Workspace::state()->clear();
     Desktop::windowState()->clear();
     Desktop::layerState()->clear();
@@ -613,12 +609,24 @@ void CCompositor::cleanup() {
     g_pDynamicPermissionManager.reset();
     g_pDecorationPositioner.reset();
     Pointer::Cursor::mgr().reset();
-    g_pPluginSystem.reset();
     Notification::overlay().reset();
     Debug::overlay().reset();
     IPC::Socket2::sock().reset();
     g_pSessionLockManager.reset();
     g_pHyprRenderer.reset();
+
+    // plugins unload after the renderer and before the GL backend:
+    // the renderer holds smart refs to plugin-defined objects (render
+    // pass elements added via m_renderPass), whose destruction runs
+    // deleters and vtables living in the plugin's .so, so that must
+    // still be mapped. conversely, plugin-held texture refs are
+    // released by the exit funcs and must find the GL context alive
+    // (glDeleteTextures in the texture destructor). unloading the
+    // plugins before the renderer teardown faults the exit path with
+    // a use-after-dlclose (SEGV error 14 on the unmapped code page).
+    g_pPluginSystem->unloadAllPlugins();
+    g_pPluginSystem.reset();
+
     g_pProtocolManager.reset();
     g_pHyprOpenGL.reset();
     Render::g_pShaderLoader.reset();
