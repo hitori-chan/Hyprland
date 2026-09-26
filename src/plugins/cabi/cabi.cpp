@@ -19,6 +19,8 @@
 #include "../../managers/SeatManager.hpp"
 #include "../../managers/fullscreen/FullscreenController.hpp"
 #include "../../desktop/view/window/Window.hpp"
+#include "../../desktop/view/window/WindowPresentation.hpp"
+#include "../../desktop/view/window/WindowFullscreenPolicy.hpp"
 #include "../../desktop/view/window/WaylandBackend.hpp"
 #include "../../desktop/view/window/X11Backend.hpp"
 #include "../../protocols/XDGShell.hpp"
@@ -1244,6 +1246,16 @@ hl_error_t hl_subscribe(hl_ctx* c, hl_event_mask_t mask, hl_dispatch_fn dispatch
                 emit([&](hl_event_t& e) {
                     e.kind = HL_EV_WINDOW_DESTROY;
                     auto   w = ref.lock();
+                    e.window = w ? makeWindow(w) : nullptr;
+                });
+            }));
+        if (mask & HL_EV_WINDOW_CLOSE)
+            ctx->m_listeners.emplace_back(E.window.close.listen([emit](PHLWINDOW w) {
+                // window.close (a strong ref) fires while the window is still
+                // live — hyprplace reads its close-box here; destroy (a weak
+                // ref) may already be null and is used only for map cleanup.
+                emit([&](hl_event_t& e) {
+                    e.kind        = HL_EV_WINDOW_CLOSE;
                     e.window = w ? makeWindow(w) : nullptr;
                 });
             }));
