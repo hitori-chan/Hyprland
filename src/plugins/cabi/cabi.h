@@ -99,8 +99,9 @@ typedef uint32_t hl_event_mask_t;
 #define HL_EV_MON_PRECOMMIT     (1u << 25)
 #define HL_EV_MON_FOCUSED       (1u << 26)
 #define HL_EV_MON_RESERVED      (1u << 27)
-#define HL_EV_CONFIG_RELOAD     (1u << 28)
-#define HL_EV_EXIT              (1u << 29)
+#define HL_EV_MON_LAYOUT        (1u << 28) /* usable-area/layout changed */
+#define HL_EV_CONFIG_RELOAD     (1u << 29)
+#define HL_EV_EXIT              (1u << 30)
 
 typedef struct hl_event {
     uint32_t kind;         /* an HL_EV_* bit (as a value, not a mask) */

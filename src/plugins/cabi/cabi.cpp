@@ -1135,6 +1135,55 @@ hl_error_t hl_subscribe(hl_ctx* c, hl_event_mask_t mask, hl_dispatch_fn dispatch
                 });
             }));
 
+        if (mask & HL_EV_WINDOW_FULL)
+            ctx->m_listeners.emplace_back(E.window.fullscreen.listen([emit](PHLWINDOW w) {
+                emit([&](hl_event_t& e) {
+                    e.kind   = HL_EV_WINDOW_FULL;
+                    e.window = w ? makeWindow(w) : nullptr;
+                });
+            }));
+
+        if (mask & HL_EV_WINDOW_WS)
+            ctx->m_listeners.emplace_back(E.window.moveToWorkspace.listen([emit](PHLWINDOW w, PHLWORKSPACE ws) {
+                emit([&](hl_event_t& e) {
+                    e.kind      = HL_EV_WINDOW_WS;
+                    e.window    = w ? makeWindow(w) : nullptr;
+                    e.workspace = ws ? makeWorkspace(ws) : nullptr;
+                });
+            }));
+
+        if (mask & HL_EV_WS_ACTIVE)
+            ctx->m_listeners.emplace_back(E.workspace.active.listen([emit](PHLWORKSPACE ws) {
+                emit([&](hl_event_t& e) {
+                    e.kind      = HL_EV_WS_ACTIVE;
+                    e.workspace = ws ? makeWorkspace(ws) : nullptr;
+                });
+            }));
+
+        if (mask & HL_EV_WS_MOVE_MON)
+            ctx->m_listeners.emplace_back(E.workspace.moveToMonitor.listen([emit](PHLWORKSPACE ws, PHLMONITOR m) {
+                emit([&](hl_event_t& e) {
+                    e.kind      = HL_EV_WS_MOVE_MON;
+                    e.workspace = ws ? makeWorkspace(ws) : nullptr;
+                    e.monitor   = m ? makeMonitor(m) : nullptr;
+                });
+            }));
+
+        if (mask & HL_EV_MON_RESERVED)
+            ctx->m_listeners.emplace_back(E.monitor.reservedChanged.listen([emit](PHLMONITOR m) {
+                emit([&](hl_event_t& e) {
+                    e.kind    = HL_EV_MON_RESERVED;
+                    e.monitor = m ? makeMonitor(m) : nullptr;
+                });
+            }));
+
+        if (mask & HL_EV_MON_LAYOUT)
+            ctx->m_listeners.emplace_back(E.monitor.layoutChanged.listen([emit]() {
+                emit([&](hl_event_t& e) {
+                    e.kind = HL_EV_MON_LAYOUT;
+                });
+            }));
+
         return HL_E_OK;
     } catch (const std::exception&) {
         return HL_E_FAILED;
