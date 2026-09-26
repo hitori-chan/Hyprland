@@ -1026,6 +1026,31 @@ uint32_t hl_workspace_number(hl_ctx* c, hl_workspace* whs) {
     }
 }
 
+// The monitor's active (numbered) workspace, or HL_E_NOT_FOUND if none.
+hl_error_t hl_monitor_active_workspace(hl_ctx* c, hl_monitor* mh, hl_workspace** out) {
+    try {
+        auto* ctx = reinterpret_cast<CCabiCtx*>(c);
+        if (!ctx)
+            return HL_E_ARG;
+        if (!cabiThreadOk(ctx))
+            return HL_E_THREAD;
+        if (!out)
+            return HL_E_ARG;
+        auto M = mh ? mh->ref.lock() : nullptr;
+        if (!M)
+            return HL_E_NOT_FOUND;
+        auto WS = M->m_activeWorkspace;
+        if (!WS)
+            return HL_E_NOT_FOUND;
+        *out = makeWorkspace(WS);
+        return HL_E_OK;
+    } catch (const std::exception&) {
+        return HL_E_FAILED;
+    } catch (...) {
+        return HL_E_FAILED;
+    }
+}
+
 // The monitor's full logical box (workarea minus no reserved extents).
 hl_error_t hl_monitor_logical_box(hl_ctx* c, hl_monitor* mh, hl_box_t* out) {
     try {

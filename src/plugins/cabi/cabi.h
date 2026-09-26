@@ -238,6 +238,8 @@ void hl_clear_allowed_over(hl_ctx* ctx, hl_window* w);
 uint32_t hl_focus_history(hl_ctx* ctx, hl_window** out, uint32_t max);
 /* The workspace's numbered id (0 for special/none). */
 uint32_t hl_workspace_number(hl_ctx* ctx, hl_workspace* ws);
+/* The monitor's active (numbered) workspace. HL_E_NOT_FOUND if none. */
+hl_error_t hl_monitor_active_workspace(hl_ctx* ctx, hl_monitor* m, hl_workspace** out);
 /* The monitor's full logical box. */
 hl_error_t hl_monitor_logical_box(hl_ctx* ctx, hl_monitor* m, hl_box_t* out);
 /* Set the compositor fullscreen modes; pass -1 (0xFFFFFFFF) to leave one
