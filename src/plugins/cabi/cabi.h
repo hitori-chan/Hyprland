@@ -19,6 +19,7 @@
  * boundary.
  */
 #ifndef HYPRLAND_CABI_H
+/* CABI_ABI_VERSION covers the whole surface; bump it on any change above. */
 #define HYPRLAND_CABI_H
 
 #include <stdint.h>
@@ -193,6 +194,48 @@ hl_error_t hl_window_at(hl_ctx* ctx, double x, double y, hl_window** out);
 uint32_t hl_windows(hl_ctx* ctx, hl_window** out, uint32_t cap);
 uint32_t hl_monitors(hl_ctx* ctx, hl_monitor** out, uint32_t cap);
 uint32_t hl_workspaces(hl_ctx* ctx, hl_workspace** out, uint32_t cap);
+
+/* ---- window writes (geometry / maximize / focus; event-loop thread) ---- */
+/* Set the window's layout box (logical px, GLOBAL — like a monitor box).
+ * Combines setTargetGeom + warpPositionSize (immediate). Floats only; a
+ * tiled window must go through hl_window_set_fs_mode instead. */
+hl_error_t hl_window_set_geom(hl_ctx* ctx, hl_window* w, double x, double y, double pw, double ph);
+/* The monitor's workarea (logical box minus reserved areas), in global px. */
+hl_error_t hl_monitor_workarea(hl_ctx* ctx, hl_monitor* m, hl_box_t* out);
+/* The toplevel's min/max size (logical px); a pinned axis has min == max. */
+hl_error_t hl_window_min_max_size(hl_ctx* ctx, hl_window* w, hl_box_t* min, hl_box_t* max);
+/* Set the compositor fullscreen modes; pass -1 (0xFFFFFFFF) to leave one
+ * unchanged. Values mirror eFullscreenMode (0 none, 1 maximized, 2 full). */
+hl_error_t hl_window_set_fs_mode(hl_ctx* ctx, hl_window* w, uint32_t internal, uint32_t client);
+/* Set the xdg toplevel's client-facing maximized bit (told-state only; this
+ * never enters compositor fullscreen). */
+hl_error_t hl_window_set_toplevel_maximized(hl_ctx* ctx, hl_window* w, uint32_t on);
+/* Read back the toplevel's client-facing maximized bit (last told state). */
+uint32_t   hl_window_told_maximized(hl_ctx* ctx, hl_window* w);
+/* Ask the client to report its size (the 0x0 grant; it answers with its
+ * normal size on the next commit). */
+hl_error_t hl_window_request_client_size(hl_ctx* ctx, hl_window* w);
+/* Force the window-size configure out (an unforced send dedups against the
+ * pending reported size and can stay silent). */
+hl_error_t hl_window_send_window_size(hl_ctx* ctx, hl_window* w, uint32_t force);
+/* Raise the window in its workspace (stacking; does not change focus). */
+hl_error_t hl_window_raise(hl_ctx* ctx, hl_window* w);
+/* Reset the in-flight client-size grant (adopt/restore: the box is ours, so
+ * a later client size answer must not re-impose itself). */
+hl_error_t hl_window_reset_client_size_grant(hl_ctx* ctx, hl_window* w);
+/* Set the born-fullscreen bit (false dissolves the one-shot re-grant that
+ * would re-arm the 0x0 client-size request on the next floating recalc). */
+hl_error_t hl_window_set_born_fullscreen(hl_ctx* ctx, hl_window* w, uint32_t on);
+
+/* ---- Lua --------------------------------------------------------------- */
+/* A Lua function body: called with the lua_State* when invoked; returns the
+ * number of Lua values pushed as results. Args are read through the Lua C
+ * API (the plugin binds lua.h itself). */
+typedef int (*hl_lua_fn)(void* lua_state);
+/* Register a Lua function `ns`.`name` (e.g. ns="hyprmax", name="toggle" ->
+ * hyprmax.toggle). The original per-plugin namespace is preserved so the
+ * user's existing binds keep working after the cutover. */
+hl_error_t hl_lua_register(hl_ctx* ctx, const char* ns, const char* name, hl_lua_fn fn);
 
 /* ---- native input state (compositor-integration rules) ---------------- */
 uint32_t hl_session_locked(hl_ctx* ctx);

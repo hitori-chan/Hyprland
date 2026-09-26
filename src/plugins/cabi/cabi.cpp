@@ -19,6 +19,11 @@
 #include "../../managers/SeatManager.hpp"
 #include "../../managers/fullscreen/FullscreenController.hpp"
 #include "../../desktop/view/window/Window.hpp"
+#include "../../desktop/view/window/WaylandBackend.hpp"
+#include "../../protocols/XDGShell.hpp"
+#include "../../layout/LayoutManager.hpp"
+#include "../../layout/target/Target.hpp"
+#include "../../layout/target/WindowTarget.hpp"
 #include "../../output/Monitor.hpp"
 #include "../../workspace/HLWorkspace.hpp"
 #include "../../debug/log/Logger.hpp"
@@ -38,6 +43,8 @@
 #include <hyprutils/os/FileDescriptor.hpp>
 
 #include <libdrm/drm_fourcc.h> // DRM_FORMAT_XRGB8888 (software RGBA textures)
+
+#include <algorithm>
 
 // The ABI version the plugin was built against. Bump on any breaking cabi.h
 // change; the plugin ejects on mismatch.
@@ -669,6 +676,281 @@ uint32_t hl_workspaces(hl_ctx* c, hl_workspace** out, uint32_t cap) {
         return 0;
     } catch (...) {
         return 0;
+    }
+}
+
+// =======================================================================
+// window writes (geometry / maximize / focus)
+// =======================================================================
+
+// The client-facing xdg toplevel role resource (nullptr for X11 / unmapped /
+// destroyed). Mirrors the plugin common's xdgToplevel(); the fork exposes
+// CWaylandBackend::m_resource publicly for exactly this.
+static SP<CXDGToplevelResource> cabiXdgToplevel(const PHLWINDOW& w) {
+    if (!w || w->backend().isX11())
+        return nullptr;
+    const auto* wl = dynamic_cast<const Desktop::View::CWaylandBackend*>(&w->backend());
+    if (!wl)
+        return nullptr;
+    const auto res = wl->m_resource.lock();
+    return res ? res->m_toplevel.lock() : nullptr;
+}
+
+hl_error_t hl_window_set_geom(hl_ctx* c, hl_window* wh, double x, double y, double pw, double ph) {
+    try {
+        auto* ctx = reinterpret_cast<CCabiCtx*>(c);
+        if (!ctx)
+            return HL_E_ARG;
+        if (!cabiThreadOk(ctx))
+            return HL_E_THREAD;
+        auto W = wh ? wh->ref.lock() : nullptr;
+        if (!W || !W->windowTarget())
+            return HL_E_NOT_FOUND;
+        const CBox BOX{Vector2D{x, y}, Vector2D{pw, ph}};
+        g_layoutManager->setTargetGeom(BOX, W->windowTarget());
+        W->windowTarget()->warpPositionSize();
+        return HL_E_OK;
+    } catch (const std::exception&) {
+        return HL_E_FAILED;
+    } catch (...) {
+        return HL_E_FAILED;
+    }
+}
+
+hl_error_t hl_monitor_workarea(hl_ctx* c, hl_monitor* mh, hl_box_t* out) {
+    try {
+        auto* ctx = reinterpret_cast<CCabiCtx*>(c);
+        if (!ctx || !out)
+            return HL_E_ARG;
+        if (!cabiThreadOk(ctx))
+            return HL_E_THREAD;
+        auto M = mh ? mh->ref.lock() : nullptr;
+        if (!M)
+            return HL_E_NOT_FOUND;
+        const auto B = M->logicalBoxMinusReserved();
+        out->x = B.pos().x;
+        out->y = B.pos().y;
+        out->w = B.size().x;
+        out->h = B.size().y;
+        return HL_E_OK;
+    } catch (const std::exception&) {
+        return HL_E_FAILED;
+    } catch (...) {
+        return HL_E_FAILED;
+    }
+}
+
+hl_error_t hl_window_min_max_size(hl_ctx* c, hl_window* wh, hl_box_t* min, hl_box_t* max) {
+    try {
+        auto* ctx = reinterpret_cast<CCabiCtx*>(c);
+        if (!ctx)
+            return HL_E_ARG;
+        if (!cabiThreadOk(ctx))
+            return HL_E_THREAD;
+        auto W = wh ? wh->ref.lock() : nullptr;
+        if (!W || !W->windowTarget())
+            return HL_E_NOT_FOUND;
+        const double UNLIMITED = 1e9;
+        if (min) {
+            const auto mn = W->windowTarget()->minSize();
+            min->x = 0; min->y = 0;
+            min->w = mn ? mn->x : 0.0;
+            min->h = mn ? mn->y : 0.0;
+        }
+        if (max) {
+            const auto mx = W->windowTarget()->maxSize();
+            max->x = 0; max->y = 0;
+            max->w = mx ? mx->x : UNLIMITED;
+            max->h = mx ? mx->y : UNLIMITED;
+        }
+        return HL_E_OK;
+    } catch (const std::exception&) {
+        return HL_E_FAILED;
+    } catch (...) {
+        return HL_E_FAILED;
+    }
+}
+
+hl_error_t hl_window_set_fs_mode(hl_ctx* c, hl_window* wh, uint32_t internal, uint32_t client) {
+    try {
+        auto* ctx = reinterpret_cast<CCabiCtx*>(c);
+        if (!ctx)
+            return HL_E_ARG;
+        if (!cabiThreadOk(ctx))
+            return HL_E_THREAD;
+        auto W = wh ? wh->ref.lock() : nullptr;
+        if (!W)
+            return HL_E_NOT_FOUND;
+        const auto MAP = [](uint32_t v) -> std::optional<Fullscreen::eFullscreenMode> {
+            if (v == 0xFFFFFFFFu)
+                return std::nullopt; // unchanged
+            switch (v) {
+                case 1: return Fullscreen::FSMODE_MAXIMIZED;
+                case 2: return Fullscreen::FSMODE_FULLSCREEN;
+                default: return Fullscreen::FSMODE_NONE;
+            }
+        };
+        Fullscreen::controller()->setFullscreenMode(W, MAP(internal), MAP(client));
+        return HL_E_OK;
+    } catch (const std::exception&) {
+        return HL_E_FAILED;
+    } catch (...) {
+        return HL_E_FAILED;
+    }
+}
+
+hl_error_t hl_window_set_toplevel_maximized(hl_ctx* c, hl_window* wh, uint32_t on) {
+    try {
+        auto* ctx = reinterpret_cast<CCabiCtx*>(c);
+        if (!ctx)
+            return HL_E_ARG;
+        if (!cabiThreadOk(ctx))
+            return HL_E_THREAD;
+        auto W = wh ? wh->ref.lock() : nullptr;
+        if (!W)
+            return HL_E_NOT_FOUND;
+        auto TOP = cabiXdgToplevel(W);
+        if (!TOP)
+            return HL_E_STATE;
+        TOP->setMaximized(on != 0);
+        return HL_E_OK;
+    } catch (const std::exception&) {
+        return HL_E_FAILED;
+    } catch (...) {
+        return HL_E_FAILED;
+    }
+}
+
+uint32_t hl_window_told_maximized(hl_ctx* c, hl_window* wh) {
+    try {
+        auto* ctx = reinterpret_cast<CCabiCtx*>(c);
+        if (!ctx || !cabiThreadOk(ctx))
+            return 0;
+        auto W = wh ? wh->ref.lock() : nullptr;
+        if (!W)
+            return 0;
+        auto TOP = cabiXdgToplevel(W);
+        if (!TOP)
+            return 0;
+        return std::ranges::contains(TOP->m_pendingApply.states, XDG_TOPLEVEL_STATE_MAXIMIZED) ? 1u : 0u;
+    } catch (...) {
+        return 0;
+    }
+}
+
+hl_error_t hl_window_request_client_size(hl_ctx* c, hl_window* wh) {
+    try {
+        auto* ctx = reinterpret_cast<CCabiCtx*>(c);
+        if (!ctx)
+            return HL_E_ARG;
+        if (!cabiThreadOk(ctx))
+            return HL_E_THREAD;
+        auto W = wh ? wh->ref.lock() : nullptr;
+        if (!W)
+            return HL_E_NOT_FOUND;
+        W->requestClientSize();
+        return HL_E_OK;
+    } catch (const std::exception&) {
+        return HL_E_FAILED;
+    } catch (...) {
+        return HL_E_FAILED;
+    }
+}
+
+hl_error_t hl_window_send_window_size(hl_ctx* c, hl_window* wh, uint32_t force) {
+    try {
+        auto* ctx = reinterpret_cast<CCabiCtx*>(c);
+        if (!ctx)
+            return HL_E_ARG;
+        if (!cabiThreadOk(ctx))
+            return HL_E_THREAD;
+        auto W = wh ? wh->ref.lock() : nullptr;
+        if (!W)
+            return HL_E_NOT_FOUND;
+        W->sendWindowSize(force != 0);
+        return HL_E_OK;
+    } catch (const std::exception&) {
+        return HL_E_FAILED;
+    } catch (...) {
+        return HL_E_FAILED;
+    }
+}
+
+hl_error_t hl_window_raise(hl_ctx* c, hl_window* wh) {
+    try {
+        auto* ctx = reinterpret_cast<CCabiCtx*>(c);
+        if (!ctx)
+            return HL_E_ARG;
+        if (!cabiThreadOk(ctx))
+            return HL_E_THREAD;
+        auto W = wh ? wh->ref.lock() : nullptr;
+        if (!W)
+            return HL_E_NOT_FOUND;
+        Desktop::windowState()->raise(W);
+        return HL_E_OK;
+    } catch (const std::exception&) {
+        return HL_E_FAILED;
+    } catch (...) {
+        return HL_E_FAILED;
+    }
+}
+
+hl_error_t hl_window_reset_client_size_grant(hl_ctx* c, hl_window* wh) {
+    try {
+        auto* ctx = reinterpret_cast<CCabiCtx*>(c);
+        if (!ctx)
+            return HL_E_ARG;
+        if (!cabiThreadOk(ctx))
+            return HL_E_THREAD;
+        auto W = wh ? wh->ref.lock() : nullptr;
+        if (!W)
+            return HL_E_NOT_FOUND;
+        W->m_sizeFromClientSerial = 0;
+        return HL_E_OK;
+    } catch (const std::exception&) {
+        return HL_E_FAILED;
+    } catch (...) {
+        return HL_E_FAILED;
+    }
+}
+
+hl_error_t hl_window_set_born_fullscreen(hl_ctx* c, hl_window* wh, uint32_t on) {
+    try {
+        auto* ctx = reinterpret_cast<CCabiCtx*>(c);
+        if (!ctx)
+            return HL_E_ARG;
+        if (!cabiThreadOk(ctx))
+            return HL_E_THREAD;
+        auto W = wh ? wh->ref.lock() : nullptr;
+        if (!W)
+            return HL_E_NOT_FOUND;
+        W->m_bornFullscreen = (on != 0);
+        return HL_E_OK;
+    } catch (const std::exception&) {
+        return HL_E_FAILED;
+    } catch (...) {
+        return HL_E_FAILED;
+    }
+}
+
+// =======================================================================
+// Lua
+// =======================================================================
+
+hl_error_t hl_lua_register(hl_ctx* c, const char* ns, const char* name, hl_lua_fn fn) {
+    try {
+        auto* ctx = reinterpret_cast<CCabiCtx*>(c);
+        if (!ctx || !ns || !name || !fn)
+            return HL_E_ARG;
+        if (!cabiThreadOk(ctx))
+            return HL_E_THREAD;
+        const bool OK = HyprlandAPI::addLuaFunction(ctx->m_handle, ns, name,
+            reinterpret_cast<PLUGIN_LUA_FN>(fn));
+        return OK ? HL_E_OK : HL_E_FAILED;
+    } catch (const std::exception&) {
+        return HL_E_FAILED;
+    } catch (...) {
+        return HL_E_FAILED;
     }
 }
 
