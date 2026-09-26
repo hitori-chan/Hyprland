@@ -220,6 +220,25 @@ uint32_t hl_window_override_redirect(hl_ctx* ctx, hl_window* w);
 hl_error_t hl_window_monitor(hl_ctx* ctx, hl_window* w, hl_monitor** out);
 double   hl_window_border_size(hl_ctx* ctx, hl_window* w);
 uint32_t hl_window_grant_exempt(hl_ctx* ctx, hl_window* w);
+
+/* ---- hyprclick: focus-setter + cursor/fullscreen/history queries --------- */
+/* A focus SETTER: fullWindowFocus with an explicit reason (the reason picks
+ * the raise policy). hl_focus_window above is the query (the focused one). */
+hl_error_t hl_focus_window_set(hl_ctx* ctx, hl_window* w, uint32_t reason);
+/* The window under the pointer (a fresh hit test). HL_E_NOT_FOUND if none. */
+hl_error_t hl_window_under_cursor(hl_ctx* ctx, hl_window** out);
+/* Controller-level fullscreen (internal OR client mode active). */
+uint32_t hl_window_is_fullscreen(hl_ctx* ctx, hl_window* w);
+/* Tuck the floaters back behind a fullscreen/maximized window: clear the
+ * allowed-over flag on the other windows of its workspace (never lower()). */
+void hl_clear_allowed_over(hl_ctx* ctx, hl_window* w);
+/* The window focus history, old -> new. Returns the count written; the
+ * caller owns the handles (bounded by `max`). */
+uint32_t hl_focus_history(hl_ctx* ctx, hl_window** out, uint32_t max);
+/* The workspace's numbered id (0 for special/none). */
+uint32_t hl_workspace_number(hl_ctx* ctx, hl_workspace* ws);
+/* The monitor's full logical box. */
+hl_error_t hl_monitor_logical_box(hl_ctx* ctx, hl_monitor* m, hl_box_t* out);
 /* Set the compositor fullscreen modes; pass -1 (0xFFFFFFFF) to leave one
  * unchanged. Values mirror eFullscreenMode (0 none, 1 maximized, 2 full). */
 hl_error_t hl_window_set_fs_mode(hl_ctx* ctx, hl_window* w, uint32_t internal, uint32_t client);

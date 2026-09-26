@@ -23,6 +23,7 @@
 #include "../../desktop/view/window/WindowFullscreenPolicy.hpp"
 #include "../../desktop/view/window/WaylandBackend.hpp"
 #include "../../desktop/view/window/X11Backend.hpp"
+#include "../../desktop/history/WindowHistoryTracker.hpp"
 #include "../../protocols/XDGShell.hpp"
 #include "../../xwayland/XSurface.hpp"
 #include "../../layout/LayoutManager.hpp"
@@ -897,6 +898,155 @@ uint32_t hl_window_grant_exempt(hl_ctx* c, hl_window* wh) {
         return (MODES.internal != Fullscreen::FSMODE_NONE || MODES.client != Fullscreen::FSMODE_NONE) ? 1u : 0u;
     } catch (...) {
         return 0;
+    }
+}
+
+// ---- hyprclick: focus-setter + cursor/fullscreen/history queries ---------
+// A focus SETTER (fullWindowFocus with an explicit reason). The focus
+// reason is what decides the raise policy: the click/focus jobs pass the
+// "switch to window" reasons, a hover pass does not.
+ hl_error_t hl_focus_window_set(hl_ctx* c, hl_window* wh, uint32_t reason) {
+    try {
+        auto* ctx = reinterpret_cast<CCabiCtx*>(c);
+        if (!ctx)
+            return HL_E_ARG;
+        if (!cabiThreadOk(ctx))
+            return HL_E_THREAD;
+        auto W = wh ? wh->ref.lock() : nullptr;
+        if (!W)
+            return HL_E_NOT_FOUND;
+        Desktop::focusState()->fullWindowFocus(W, static_cast<Desktop::eFocusReason>(reason));
+        return HL_E_OK;
+    } catch (const std::exception&) {
+        return HL_E_FAILED;
+    } catch (...) {
+        return HL_E_FAILED;
+    }
+}
+
+// The window under the pointer (the compositor's own hit test, same flags
+// the shell uses for windowUnderCursor). A fresh resolve — a stale pointer
+// focus after a map/unmap under a still cursor is corrected, not compounded.
+ hl_error_t hl_window_under_cursor(hl_ctx* c, hl_window** out) {
+    try {
+        auto* ctx = reinterpret_cast<CCabiCtx*>(c);
+        if (!ctx)
+            return HL_E_ARG;
+        if (!cabiThreadOk(ctx))
+            return HL_E_THREAD;
+        if (!out)
+            return HL_E_ARG;
+        auto W = Desktop::viewState()->hitTest().windowAt(g_pInputManager->getMouseCoordsInternal(),
+                                                          Desktop::View::ALLOW_FLOATING | Desktop::View::RESERVED_EXTENTS | Desktop::View::INPUT_EXTENTS);
+        if (!W)
+            return HL_E_NOT_FOUND;
+        *out = makeWindow(W);
+        return HL_E_OK;
+    } catch (const std::exception&) {
+        return HL_E_FAILED;
+    } catch (...) {
+        return HL_E_FAILED;
+    }
+}
+
+// Controller-level fullscreen (the internal OR client mode is active).
+uint32_t hl_window_is_fullscreen(hl_ctx* c, hl_window* wh) {
+    try {
+        auto* ctx = reinterpret_cast<CCabiCtx*>(c);
+        if (!ctx || !cabiThreadOk(ctx) || !wh)
+            return 0;
+        auto W = wh->ref.lock();
+        return (W && Fullscreen::controller()->isFullscreen(W)) ? 1u : 0u;
+    } catch (...) {
+        return 0;
+    }
+}
+
+// "Raising" a fullscreen/maximized window means tucking the floaters back
+// behind it: clear ONLY the allowed-over flag (under a fullscreen window the
+// compositor shows floaters by flag, not stack position) — never lower(),
+// which would bury the opener. Pinned windows stay above by design.
+ void hl_clear_allowed_over(hl_ctx* c, hl_window* wh) {
+    try {
+        auto* ctx = reinterpret_cast<CCabiCtx*>(c);
+        if (!ctx || !cabiThreadOk(ctx) || !wh)
+            return;
+        auto W = wh->ref.lock();
+        if (!W || !W->m_workspace)
+            return;
+        for (const auto& OW : Desktop::windowState()->windows()) {
+            if (OW == W || !OW->mapped() || OW->m_workspace != W->m_workspace || !OW->isAllowedOverFullscreen() ||
+                static_cast<bool>(OW->m_state & Desktop::View::WINDOW_STATE_PINNED))
+                continue;
+            OW->fullscreenPolicy().setAllowedOverFullscreen(false);
+            OW->updateFullscreenInputState();
+            *OW->presentation().alpha(Desktop::View::WINDOW_ALPHA_FULLSCREEN) = OW->isBlockedByFullscreen() ? 0.F : 1.F;
+        }
+    } catch (...) {
+    }
+}
+
+// The window focus history, old -> new (the tracker's full list; weak refs,
+// dead windows are skipped). Returns the count written; the caller owns the
+// handles.
+uint32_t hl_focus_history(hl_ctx* c, hl_window** out, uint32_t max) {
+    try {
+        auto* ctx = reinterpret_cast<CCabiCtx*>(c);
+        if (!ctx || !out)
+            return 0;
+        if (!cabiThreadOk(ctx))
+            return 0;
+        const auto& HIST = Desktop::History::windowTracker()->fullHistory();
+        uint32_t n = 0;
+        for (const auto& R : HIST) {
+            if (n >= max)
+                break;
+            auto W = R.lock();
+            if (!W)
+                continue;
+            out[n] = makeWindow(W);
+            n++;
+        }
+        return n;
+    } catch (...) {
+        return 0;
+    }
+}
+
+// The workspace's numbered id (0 for special/none — numbered IDs start at 1).
+uint32_t hl_workspace_number(hl_ctx* c, hl_workspace* whs) {
+    try {
+        auto* ctx = reinterpret_cast<CCabiCtx*>(c);
+        if (!ctx || !cabiThreadOk(ctx) || !whs)
+            return 0;
+        auto WS = whs->ref.lock();
+        return WS ? WS->numberedID().value_or(0) : 0u;
+    } catch (...) {
+        return 0;
+    }
+}
+
+// The monitor's full logical box (workarea minus no reserved extents).
+hl_error_t hl_monitor_logical_box(hl_ctx* c, hl_monitor* mh, hl_box_t* out) {
+    try {
+        auto* ctx = reinterpret_cast<CCabiCtx*>(c);
+        if (!ctx || !out)
+            return HL_E_ARG;
+        if (!cabiThreadOk(ctx))
+            return HL_E_THREAD;
+        auto M = mh ? mh->ref.lock() : nullptr;
+        if (!M)
+            return HL_E_NOT_FOUND;
+        const auto B = M->logicalBox();
+        out->x = B.pos().x;
+        out->y = B.pos().y;
+        out->w = B.size().x;
+        out->h = B.size().y;
+        return HL_E_OK;
+    } catch (const std::exception&) {
+        return HL_E_FAILED;
+    } catch (...) {
+        return HL_E_FAILED;
     }
 }
 
