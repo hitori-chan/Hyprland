@@ -8,6 +8,7 @@
 #include "../notification/NotificationOverlay.hpp"
 #include "../layout/supplementary/WorkspaceAlgoMatcher.hpp"
 #include "../i18n/Engine.hpp"
+#include "cabi/cabi-int.hpp"
 
 CPluginSystem::CPluginSystem() {
     g_pFunctionHookSystem = makeUnique<CHookSystem>();
@@ -89,10 +90,61 @@ std::expected<CPlugin*, std::string> CPluginSystem::loadPluginInternal(const std
     PPLUGIN_INIT_FUNC        initFunc   = rc<PPLUGIN_INIT_FUNC>(dlsym(MODULE, PLUGIN_INIT_FUNC_STR));
 
     if (!apiVerFunc || !initFunc) {
-        LOG(Log::ERR, " [PluginSystem] Plugin {} could not be loaded. (No apiver/init func)", path);
-        dlclose(MODULE);
-        m_loadedPlugins.pop_back();
-        return std::unexpected(std::format("Plugin {} could not be loaded: {}", path, "missing apiver/init func"));
+        // Fallback: a C-ABI plugin (the Rust "awesome") exports
+        // hyprPluginInitC/hyprPluginExitC instead of the C++ entries.
+        using PCABI_INIT = int (*)(void*, const char**, const char**, const char**, const char**);
+        auto cInit = rc<PCABI_INIT>(dlsym(MODULE, "hyprPluginInitC"));
+        if (!cInit) {
+            LOG(Log::ERR, " [PluginSystem] Plugin {} could not be loaded. (No apiver/init func)", path);
+            dlclose(MODULE);
+            m_loadedPlugins.pop_back();
+            return std::unexpected(std::format("Plugin {} could not be loaded: {}", path, "missing apiver/init func"));
+        }
+
+        // C-ABI path. The ctx is owned by CPlugin for the load lifetime; its
+        // self-weak is what the plugin's jobs/listeners hold.
+        PLUGIN->m_isCPlugin = true;
+        PLUGIN->m_cabiCtx   = cabiCreateCtx();
+        PLUGIN->m_cabiCtx->m_handle = MODULE; // config registration needs it
+        void*  cctx              = PLUGIN->m_cabiCtx.get();
+
+        const char* cname   = nullptr;
+        const char* cver    = nullptr;
+        const char* cauthor = nullptr;
+        const char* cdesc   = nullptr;
+        int         rcCode  = 0;
+        try {
+            if (!setjmp(m_pluginFaultJumpBuf)) {
+                m_allowConfigVars = true;
+                rcCode            = cInit(cctx, &cname, &cver, &cauthor, &cdesc);
+            } else {
+                throw std::runtime_error("received a fatal signal");
+            }
+        } catch (std::exception& e) {
+            m_allowConfigVars = false;
+            LOG(Log::ERR, " [PluginSystem] Plugin {} (Handle {:x}) crashed in init. Unloading.", path, rc<uintptr_t>(MODULE));
+            unloadPlugin(PLUGIN, true); // C-ABI: skips the exit entry, drops the ctx
+            return std::unexpected(std::format("Plugin {} could not be loaded: plugin crashed/threw in main: {}", path, e.what()));
+        }
+        m_allowConfigVars = false;
+
+        if (rcCode != 0) {
+            LOG(Log::ERR, " [PluginSystem] Plugin {} (C-ABI) init failed (rc {}). Unloading.", path, rcCode);
+            unloadPlugin(PLUGIN, true);
+            return std::unexpected(std::format("Plugin {} could not be loaded: C init failed", path));
+        }
+
+        PLUGIN->m_name        = cname ? cname : "awesome";
+        PLUGIN->m_version     = cver ? cver : "";
+        PLUGIN->m_author      = cauthor ? cauthor : "";
+        PLUGIN->m_description = cdesc ? cdesc : "";
+
+        g_pEventLoopManager->doLater([] { Config::mgr()->reload(); });
+
+        LOG(Log::DEBUG, R"( [PluginSystem] Plugin {} (C-ABI) loaded. Handle: {:x}, path: "{}", version: "{}")", PLUGIN->m_name, rc<uintptr_t>(MODULE), path,
+            PLUGIN->m_version);
+
+        return PLUGIN;
     }
 
     const std::string PLUGINAPIVER = apiVerFunc();
@@ -140,7 +192,18 @@ void CPluginSystem::unloadPlugin(const CPlugin* plugin, bool eject) {
     if (!plugin)
         return;
 
-    if (!eject) {
+    if (plugin->m_isCPlugin) {
+        if (!eject) {
+            using PCABI_EXIT = void (*)(void*);
+            auto cExit = rc<PCABI_EXIT>(dlsym(plugin->m_handle, "hyprPluginExitC"));
+            if (cExit)
+                cExit(plugin->m_cabiCtx.get());
+        }
+        // Drop the context (cancels lingering jobs, unsubscribes listeners)
+        // BEFORE the .so is unmapped. Idempotent with the plugin's own
+        // hl_shutdown, so a missing/broken exit entry still tears down clean.
+        const_cast<CPlugin*>(plugin)->m_cabiCtx.reset();
+    } else if (!eject) {
         PPLUGIN_EXIT_FUNC exitFunc = rc<PPLUGIN_EXIT_FUNC>(dlsym(plugin->m_handle, PLUGIN_EXIT_FUNC_STR));
         if (exitFunc)
             exitFunc();

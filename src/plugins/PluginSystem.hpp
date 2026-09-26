@@ -10,6 +10,7 @@
 #include <expected>
 
 class IHyprWindowDecoration;
+class CCabiCtx;
 
 class CPlugin {
   public:
@@ -21,6 +22,12 @@ class CPlugin {
     std::string                         m_path = "";
 
     bool                                m_loadedWithConfig = false;
+
+    // C-ABI plugin (Rust "awesome"): no pluginInit/exported globals; entered
+    // via the hyprPluginInitC/ExitC entries. m_cabiCtx is the single strong
+    // owner of the context; its self-weak is what jobs/listeners hold.
+    bool                                m_isCPlugin = false;
+    SP<CCabiCtx>                        m_cabiCtx;
 
     HANDLE                              m_handle = nullptr;
 

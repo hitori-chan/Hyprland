@@ -702,7 +702,9 @@ install(
   FILES_MATCHING
   PATTERN "*.h"
   PATTERN "*.hpp"
-  PATTERN "*.inc")
+  PATTERN "*.inc"
+  # cabi.h is the installed C ABI; its C++-only internals are not.
+  PATTERN "cabi-int.hpp" EXCLUDE)
 
 if(BUILD_TESTING OR WITH_TESTS)
   message(STATUS "Building tests")
