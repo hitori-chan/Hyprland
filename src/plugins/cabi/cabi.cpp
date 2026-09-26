@@ -426,6 +426,20 @@ hl_error_t hl_window_get(hl_ctx* c, hl_window* wh,
     }
 }
 
+uint64_t hl_window_id(hl_ctx* c, hl_window* wh) {
+    try {
+        auto* ctx = reinterpret_cast<CCabiCtx*>(c);
+        if (!ctx || !cabiThreadOk(ctx) || !wh)
+            return 0;
+        auto W = wh->ref.lock();
+        if (!W)
+            return 0;
+        return reinterpret_cast<uint64_t>(W.get());
+    } catch (...) {
+        return 0;
+    }
+}
+
 hl_error_t hl_window_workspace(hl_ctx* c, hl_window* wh, hl_workspace** out) {
     try {
         auto* ctx = reinterpret_cast<CCabiCtx*>(c);

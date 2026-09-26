@@ -177,6 +177,11 @@ hl_error_t hl_window_get(hl_ctx* ctx, hl_window* w,
     uint32_t* floating, uint32_t* pinned, uint32_t* visible,
     uint32_t* allowed_over_fullscreen, uint32_t* urgent);
 hl_error_t hl_window_workspace(hl_ctx* ctx, hl_window* w, hl_workspace** out);
+/* The window's stable identity (its address, valid while the window lives;
+ * 0 if the handle's weak ref has expired). Keys a plugin's per-window map —
+ * entries must be dropped on HL_EV_WINDOW_DESTROY so a reused address cannot
+ * alias a fresh window. */
+uint64_t hl_window_id(hl_ctx* ctx, hl_window* w);
 
 hl_error_t hl_workspace_get(hl_ctx* ctx, hl_workspace* ws,
     hl_str_t* name, uint32_t* id, uint32_t* focused);
