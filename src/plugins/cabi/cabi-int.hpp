@@ -17,6 +17,10 @@
 #include "../../helpers/signal/Signal.hpp"
 #include "../../managers/eventLoop/EventLoopManager.hpp" // SReadableWaiter, CEventLoopTimer
 #include "../../config/values/types/IValue.hpp"
+#include "../../render/Texture.hpp"                        // Render::ITexture
+#include "../../render/pass/PassElement.hpp"                // IPassElement, ePassElementType
+#include "../../SharedDefs.hpp"                             // eRenderStage
+#include "../../output/Monitor.hpp"                         // Monitor::CMonitor (m_scale, logicalBox, m_position)
 
 // The handle structs. Each holds a WEAK reference to the compositor object
 // plus an atomic refcount of how many plugin-side references are live. The
@@ -38,6 +42,69 @@ struct hl_monitor {
     PHLMONITORREF    ref;
     std::atomic<int> rc{ 1 };
     explicit hl_monitor(PHLMONITORREF r) : ref(r) {}
+};
+
+// A refcounted GPU texture. Built in the warm pass (outside a frame) and
+// painted by a later frame's draw (crash class 4). Wraps the compositor's
+// SP<Render::ITexture>; the refcount is how many plugin-side references are live.
+struct hl_texture {
+    SP<Render::ITexture> tex;
+    std::atomic<int>     rc{ 1 };
+    explicit hl_texture(SP<Render::ITexture> t) : tex(std::move(t)) {}
+};
+
+// A paint canvas: the trampoline builds one per frame for the monitor being
+// rendered and hands it to the plugin's draw callback. Coordinates are
+// monitor-local LOGICAL px (0,0 = the monitor's top-left); the canvas scales
+// to monitor-local physical for the renderer. `bounds` points at the element's
+// bounding box (the plugin sets it so the pass can optimize).
+struct hl_canvas {
+    PHLMONITORREF mon;
+    float         scale   = 1.0f;
+    CBox          logical {};
+    CBox*         bounds  = nullptr;
+};
+
+// The trampoline pass element: the fork adds one per frame (per render
+// callback) at the selected stage. Its draw() builds a canvas and invokes the
+// plugin's C callback, which paints imperatively through the canvas (the
+// callback never returns elements — the C++ bar does the same).
+class CCabiPassElement : public IPassElement {
+  public:
+    CCabiPassElement(PHLMONITOR mon, hl_draw_fn draw, void* ud) : m_mon(mon), m_draw(draw), m_ud(ud) {}
+    virtual ~CCabiPassElement() = default;
+
+    virtual std::vector<UP<IPassElement>> draw() override {
+        auto M = m_mon.lock();
+        if (!M || !m_draw)
+            return {};
+        hl_canvas cv{};
+        cv.mon     = m_mon;
+        cv.scale   = M->m_scale;
+        cv.logical = M->logicalBox();
+        cv.bounds  = &m_bounds;
+        m_draw(&cv, m_ud);
+        return {};
+    }
+    virtual bool                needsLiveBlur()       override { return false; }
+    virtual bool                needsPrecomputeBlur() override { return false; }
+    virtual const char*         passName()            override { return "CCabiPassElement"; }
+    virtual ePassElementType    type()                override { return EK_CUSTOM; }
+    virtual std::optional<CBox> boundingBox()         override {
+        if (m_bounds.w > 0 && m_bounds.h > 0)
+            return m_bounds;
+        auto M = m_mon.lock();
+        if (!M)
+            return std::nullopt;
+        const auto B = M->logicalBox();
+        return CBox{0, 0, B.size().x, B.size().y};
+    }
+
+  private:
+    PHLMONITORREF m_mon;
+    hl_draw_fn    m_draw;
+    void*         m_ud;
+    CBox          m_bounds{ 0, 0, 0, 0 }; // monitor-local logical; set by the plugin
 };
 
 class CCabiCtx {
@@ -67,6 +134,19 @@ class CCabiCtx {
         SP<Config::Values::IValue> val;
     };
     std::unordered_map<void*, SConfigVal> m_config;
+
+    // Render callbacks. A single render-stage listener (added on the first
+    // hl_render_listen, kept in m_listeners) walks this list each frame and
+    // adds a trampoline element for every callback whose stage matches. `stage`
+    // stores the compositor's eRenderStage value (mapped from the compact cabi
+    // index in hl_render_listen). SPs so the object (the opaque handle we hand
+    // out) stays put across reallocation.
+    struct SRenderListener {
+        uint32_t   stage = 0;
+        hl_draw_fn draw  = nullptr;
+        void*      ud    = nullptr;
+    };
+    std::vector<SP<SRenderListener>> m_renders;
 
     // String scratch: a small rotating pool so a single query can return
     // several distinct strings (e.g. window appID + title). Each hl_str_t

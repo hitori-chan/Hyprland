@@ -237,6 +237,76 @@ hl_error_t hl_config_register(hl_ctx* ctx, const char* key, const char* desc,
  * `str` (STRING). */
 hl_error_t hl_config_get(hl_ctx* ctx, void* h, uint32_t* type, double* num, hl_str_t* str);
 
+/* ---- 5. render (canvas & textures) ------------------------------------ */
+/*
+ * The render model mirrors the fork's pass-element design: the plugin
+ * registers a draw callback for a render stage. The fork's cabi layer
+ * listens to the compositor's render-stage event and, at the selected stage,
+ * adds a trampoline pass element that builds a canvas for the monitor being
+ * rendered and calls the plugin's callback. The callback paints
+ * IMPERATIVELY through the canvas (rect/glass/border/texture) — it does not
+ * return elements.
+ *
+ * Textures are created OUTSIDE the frame (the "warm" pass) and referenced by
+ * a later frame's draw. A texture cannot be painted in the frame that created
+ * it (crash class 4); the warm/draw gate is the plugin's discipline, and the
+ * canvas draw calls simply no-op for a not-yet-ready texture.
+ */
+
+/* Render stages the callback can fire at (a mirror of the fork's
+ * eRenderStage; only the ones a plugin UI needs are exposed). */
+typedef enum {
+    HL_RND_POST_WINDOWS = 0, /* after windows, before top layers — bars */
+    HL_RND_PRE_WINDOWS = 1,  /* before windows, after bottom/overlay */
+    HL_RND_POST        = 2,  /* final stage (after all layers) */
+} hl_render_stage_t;
+
+typedef struct hl_canvas  hl_canvas;
+typedef struct hl_texture hl_texture;
+
+/* A draw callback: paint this frame for the active monitor. Runs on the
+ * event-loop thread inside the render pass; keep it short (no D-Bus, no
+ * blocking). `ud` is the plugin's pointer from hl_render_listen. */
+typedef void (*hl_draw_fn)(hl_canvas* cv, void* ud);
+
+/* Register a draw callback for `stage`. `out` receives an opaque handle
+ * (hl_shutdown clears it). Invoked once per frame for each rendered monitor. */
+hl_error_t hl_render_listen(hl_ctx* ctx, uint32_t stage, hl_draw_fn draw, void* ud, void** out);
+
+/* ---- canvas queries (monitor-local LOGICAL px; the fork scales) -------- */
+/* The monitor this frame renders (a ref is attached). */
+void hl_canvas_monitor(hl_canvas* cv, hl_monitor** out);
+/* The monitor's logical box + output scale (for layout). */
+void hl_canvas_extent(hl_canvas* cv, hl_box_t* logical, float* scale);
+
+/* ---- canvas draw (all monitor-local logical px) ------------------------ */
+/* A filled rect; round=0 for square corners, rounding_power tunes the curve. */
+void hl_canvas_rect(hl_canvas* cv, hl_box_t box, hl_color_t color, uint32_t round, float rounding_power);
+/* Opaque fast path, or translucent blur when `blur` is set (the "glass"). */
+void hl_canvas_glass(hl_canvas* cv, hl_box_t box, hl_color_t color, uint32_t round, float rounding_power, uint32_t blur);
+/* A border ring of `size_px` thickness. */
+void hl_canvas_border(hl_canvas* cv, hl_box_t box, hl_color_t color, uint32_t round, float rounding_power, uint32_t size_px);
+/* Blit a (ready) texture into a logical box. No-ops if the texture is not
+ * ready this frame. */
+void hl_canvas_texture(hl_canvas* cv, hl_texture* tex, hl_box_t box);
+
+/* ---- textures (refcounted; build in the warm pass, draw in a later frame) */
+/* A text texture. `pt` is the font size in logical px; `max_width` 0 = no
+ * wrap; `font` "" = the compositor default. Returns a ref the caller owns. */
+hl_error_t hl_text_texture(hl_ctx* ctx, const char* text, hl_color_t color,
+    uint32_t pt, uint32_t max_width, const char* font, hl_texture** out);
+/* A texture from raw RGBA8 image data (top-down, straight alpha). */
+hl_error_t hl_texture_from_rgba(hl_ctx* ctx, const uint8_t* data,
+    uint32_t w, uint32_t h, uint32_t stride, hl_texture** out);
+/* Pixel size (the texture's native, physical extent). */
+void hl_texture_size(hl_texture* t, uint32_t* w, uint32_t* h);
+void hl_texture_ref(hl_texture* t);
+void hl_texture_unref(hl_texture* t);
+
+/* ---- damage ------------------------------------------------------------- */
+/* Mark a monitor-local logical box dirty (schedules a repaint of `m`). */
+void hl_damage(hl_ctx* ctx, hl_monitor* m, hl_box_t box);
+
 #ifdef __cplusplus
 }
 #endif

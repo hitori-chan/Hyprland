@@ -31,8 +31,13 @@
 #include "../../config/values/types/FloatValue.hpp"
 #include "../../config/values/types/StringValue.hpp"
 #include "../../plugins/PluginAPI.hpp"
+#include "../../render/Renderer.hpp"                   // g_pHyprRenderer, ITexture, addPassElement, damageBox, createTexture, renderText
+#include "../../render/OpenGL.hpp"                      // Render::GL::g_pHyprOpenGL (renderRect/Border/Texture)
+#include "../../config/shared/complex/ComplexDataTypes.hpp" // Config::CGradientValueData (renderBorder)
 
 #include <hyprutils/os/FileDescriptor.hpp>
+
+#include <libdrm/drm_fourcc.h> // DRM_FORMAT_XRGB8888 (software RGBA textures)
 
 // The ABI version the plugin was built against. Bump on any breaking cabi.h
 // change; the plugin ejects on mismatch.
@@ -137,11 +142,13 @@ void CCabiCtx::shutdown() {
     m_jobs.clear();
 
     // Then listeners: drop every subscription so no event reaches a torn-down
-    // dispatcher.
+    // dispatcher (this also drops the render-stage listener, so no trampoline
+    // element is added after teardown).
     m_listeners.clear();
     m_dispatch = nullptr;
     m_ud       = nullptr;
     m_mask     = 0;
+    m_renders.clear();
 
     for (auto& s : m_scratch)
         s.clear();
@@ -989,6 +996,241 @@ void hl_job_cancel(hl_ctx* c, hl_job_t job) {
             ctx->cancelJobInternal(j);
             ctx->m_jobs.erase(it);
         }
+    } catch (const std::exception&) {
+    } catch (...) {
+    }
+}
+
+// =======================================================================
+// render (canvas & textures)
+// =======================================================================
+
+hl_error_t hl_render_listen(hl_ctx* c, uint32_t stage, hl_draw_fn draw, void* ud, void** out) {
+    try {
+        auto* ctx = reinterpret_cast<CCabiCtx*>(c);
+        if (!ctx)
+            return HL_E_ARG;
+        if (!cabiThreadOk(ctx))
+            return HL_E_THREAD;
+        if (ctx->m_shutdown || !draw)
+            return HL_E_ARG;
+        if (stage > (uint32_t) HL_RND_POST)
+            return HL_E_ARG;
+        if (!out)
+            return HL_E_ARG;
+
+        // The cabi stage indices are a compact public set (0,1,2) and do NOT
+        // equal the compositor's eRenderStage values — map them explicitly.
+        // (RENDER_POST is post-GL, so HL_RND_POST maps to the last renderable
+        // stage, RENDER_LAST_MOMENT.)
+        eRenderStage target;
+        switch (stage) {
+            case 0:
+                target = RENDER_POST_WINDOWS;
+                break;
+            case 1:
+                target = RENDER_PRE_WINDOWS;
+                break;
+            default:
+                target = RENDER_LAST_MOMENT;
+                break;
+        }
+
+        // Register the render-stage listener once; it walks m_renders each
+        // frame and adds a trampoline for every callback matching the stage.
+        if (ctx->m_renders.empty()) {
+            auto weak = ctx->m_weak;
+            ctx->m_listeners.emplace_back(Event::bus()->m_events.render.stage.listen([weak](eRenderStage st) {
+                auto ctxp = weak.lock();
+                if (!ctxp || ctxp->m_shutdown)
+                    return;
+                auto mon = g_pHyprRenderer->m_renderData.pMonitor.lock();
+                if (!mon)
+                    return;
+                for (const auto& r : ctxp->m_renders)
+                    if (r->stage == (uint32_t) st)
+                        g_pHyprRenderer->addPassElement(makeUnique<CCabiPassElement>(mon, r->draw, r->ud));
+            }));
+        }
+
+        auto r     = makeShared<CCabiCtx::SRenderListener>();
+        r->stage   = (uint32_t) target;
+        r->draw    = draw;
+        r->ud      = ud;
+        void*    h = r.get();
+        ctx->m_renders.push_back(std::move(r));
+        *out = h;
+        return HL_E_OK;
+    } catch (const std::exception&) {
+        return HL_E_FAILED;
+    } catch (...) {
+        return HL_E_FAILED;
+    }
+}
+
+// ---- canvas queries ----
+
+void hl_canvas_monitor(hl_canvas* cv, hl_monitor** out) {
+    if (!cv || !out)
+        return;
+    auto M = cv->mon.lock();
+    if (!M)
+        return;
+    *out = makeMonitor(M);
+}
+
+void hl_canvas_extent(hl_canvas* cv, hl_box_t* logical, float* scale) {
+    if (!cv)
+        return;
+    auto M = cv->mon.lock();
+    if (!M)
+        return;
+    if (logical) {
+        const auto B = M->logicalBox();
+        logical->x = 0;
+        logical->y = 0;
+        logical->w = B.size().x;
+        logical->h = B.size().y;
+    }
+    if (scale)
+        *scale = M->m_scale;
+}
+
+// monitor-local logical px -> monitor-local physical px (the renderer's space):
+// the monitor's top-left is (0,0) in both, so only the scale differs.
+static CBox cabiToPhys(const hl_canvas* cv, const hl_box_t& box) {
+    return CBox{box.x, box.y, box.w, box.h}.scale(cv->scale).round();
+}
+
+// ---- canvas draw (the plugin paints imperatively through these) ----
+
+void hl_canvas_rect(hl_canvas* cv, hl_box_t box, hl_color_t color, uint32_t round, float rp) {
+    if (!cv || !Render::GL::g_pHyprOpenGL)
+        return;
+    if (!cv->mon.lock())
+        return;
+    try {
+        const CHyprColor c{color.r, color.g, color.b, color.a};
+        Render::GL::g_pHyprOpenGL->renderRect(cabiToPhys(cv, box), c, {.round = (int) round, .roundingPower = rp});
+    } catch (...) {
+    }
+}
+
+void hl_canvas_glass(hl_canvas* cv, hl_box_t box, hl_color_t color, uint32_t round, float rp, uint32_t blur) {
+    if (!cv || !Render::GL::g_pHyprOpenGL)
+        return;
+    if (!cv->mon.lock())
+        return;
+    try {
+        const CHyprColor c{color.r, color.g, color.b, color.a};
+        Render::GL::g_pHyprOpenGL->renderRect(cabiToPhys(cv, box), c, {.round = (int) round, .roundingPower = rp, .blur = (bool) blur});
+    } catch (...) {
+    }
+}
+
+void hl_canvas_border(hl_canvas* cv, hl_box_t box, hl_color_t color, uint32_t round, float rp, uint32_t size_px) {
+    if (!cv || !Render::GL::g_pHyprOpenGL)
+        return;
+    if (!cv->mon.lock())
+        return;
+    try {
+        const CHyprColor c{color.r, color.g, color.b, color.a};
+        Render::GL::g_pHyprOpenGL->renderBorder(cabiToPhys(cv, box), Config::CGradientValueData{c}, {.round = (int) round, .roundingPower = rp, .borderSize = (int) size_px});
+    } catch (...) {
+    }
+}
+
+void hl_canvas_texture(hl_canvas* cv, hl_texture* tex, hl_box_t box) {
+    if (!cv || !tex || !tex->tex || !Render::GL::g_pHyprOpenGL)
+        return;
+    if (!cv->mon.lock())
+        return;
+    if (tex->tex->m_texID == 0)
+        return; // warm/draw gate: never paint a texture in the frame it was created in
+    try {
+        Render::GL::g_pHyprOpenGL->renderTexture(tex->tex, cabiToPhys(cv, box), {});
+    } catch (...) {
+    }
+}
+
+// ---- textures ----
+
+hl_error_t hl_text_texture(hl_ctx* c, const char* text, hl_color_t color, uint32_t pt, uint32_t max_width, const char* font, hl_texture** out) {
+    try {
+        auto* ctx = reinterpret_cast<CCabiCtx*>(c);
+        if (!ctx)
+            return HL_E_ARG;
+        if (!cabiThreadOk(ctx))
+            return HL_E_THREAD;
+        if (ctx->m_shutdown || !text || !out)
+            return HL_E_ARG;
+        const CHyprColor col{color.r, color.g, color.b, color.a};
+        auto t = g_pHyprRenderer->renderText(text, col, (int) pt, false, font ? font : "", (int) max_width);
+        if (!t)
+            return HL_E_FAILED;
+        *out = new hl_texture(std::move(t));
+        return HL_E_OK;
+    } catch (const std::exception&) {
+        return HL_E_FAILED;
+    } catch (...) {
+        return HL_E_FAILED;
+    }
+}
+
+hl_error_t hl_texture_from_rgba(hl_ctx* c, const uint8_t* data, uint32_t w, uint32_t h, uint32_t stride, hl_texture** out) {
+    try {
+        auto* ctx = reinterpret_cast<CCabiCtx*>(c);
+        if (!ctx)
+            return HL_E_ARG;
+        if (!cabiThreadOk(ctx))
+            return HL_E_THREAD;
+        if (ctx->m_shutdown || !data || !out || w == 0 || h == 0)
+            return HL_E_ARG;
+        // XRGB8888 (0x34325258): the software-texture format Hyprland uses for
+        // CPU-provided pixels (the 'X' is an opaque alpha placeholder).
+        auto t = g_pHyprRenderer->createTexture(DRM_FORMAT_XRGB8888, const_cast<uint8_t*>(data), stride, { (double) w, (double) h }, false, false);
+        if (!t)
+            return HL_E_FAILED;
+        *out = new hl_texture(std::move(t));
+        return HL_E_OK;
+    } catch (const std::exception&) {
+        return HL_E_FAILED;
+    } catch (...) {
+        return HL_E_FAILED;
+    }
+}
+
+void hl_texture_size(hl_texture* t, uint32_t* w, uint32_t* h) {
+    if (!t || !t->tex)
+        return;
+    if (w)
+        *w = (uint32_t) t->tex->m_size.x;
+    if (h)
+        *h = (uint32_t) t->tex->m_size.y;
+}
+
+void hl_texture_ref(hl_texture* t) {
+    if (t)
+        t->rc.fetch_add(1, std::memory_order_relaxed);
+}
+void hl_texture_unref(hl_texture* t) {
+    if (t && t->rc.fetch_sub(1, std::memory_order_acq_rel) == 1)
+        delete t;
+}
+
+// ---- damage ----
+
+void hl_damage(hl_ctx* c, hl_monitor* mh, hl_box_t box) {
+    try {
+        auto* ctx = reinterpret_cast<CCabiCtx*>(c);
+        if (!ctx || !cabiThreadOk(ctx) || !mh)
+            return;
+        auto M = mh->ref.lock();
+        if (!M)
+            return;
+        // damageBox takes GLOBAL coords; the box is monitor-local logical.
+        const CBox global{box.x + M->m_position.x, box.y + M->m_position.y, box.w, box.h};
+        g_pHyprRenderer->damageBox(global);
     } catch (const std::exception&) {
     } catch (...) {
     }
