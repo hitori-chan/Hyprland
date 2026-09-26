@@ -249,6 +249,9 @@ uint32_t hl_native_pointer_grab(hl_ctx* ctx);    /* seat grab / held btns */
 /* The pointer (at its current position — the event position for input
  * events) is over a native layer surface: pass the event through. */
 uint32_t hl_native_layer_at(hl_ctx* ctx);
+/* Super/Meta is down on the seat's keyboard — the modifier the grab chords
+ * are built on (a window move/resize drag only starts under Super). */
+uint32_t hl_super_held(hl_ctx* ctx);
 
 /* ---- events ------------------------------------------------------------ */
 hl_error_t hl_subscribe(hl_ctx* ctx, hl_event_mask_t mask,

@@ -1002,6 +1002,14 @@ uint32_t hl_native_layer_at(hl_ctx* c) {
     return (g_pInputManager && g_pInputManager->pointerHitIsNativeSurface()) ? 1 : 0;
 }
 
+uint32_t hl_super_held(hl_ctx* c) {
+    auto* ctx = reinterpret_cast<CCabiCtx*>(c);
+    if (!ctx || !cabiThreadOk(ctx))
+        return 0;
+    const auto KB = g_pSeatManager ? g_pSeatManager->m_keyboard.lock() : nullptr;
+    return (KB && (KB->getModifiers() & Input::HL_MODIFIER_META) != Input::HL_MODIFIER_NONE) ? 1 : 0;
+}
+
 // =======================================================================
 // events
 // =======================================================================
