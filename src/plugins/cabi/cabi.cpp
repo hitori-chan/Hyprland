@@ -1368,10 +1368,11 @@ hl_error_t hl_subscribe(hl_ctx* c, hl_event_mask_t mask, hl_dispatch_fn dispatch
             }));
 
         if (mask & HL_EV_WINDOW_ACTIVE)
-            ctx->m_listeners.emplace_back(E.window.active.listen([emit](PHLWINDOW w, Desktop::eFocusReason) {
+            ctx->m_listeners.emplace_back(E.window.active.listen([emit](PHLWINDOW w, Desktop::eFocusReason reason) {
                 emit([&](hl_event_t& e) {
-                    e.kind = HL_EV_WINDOW_ACTIVE;
-                    e.window = w ? makeWindow(w) : nullptr;
+                    e.kind         = HL_EV_WINDOW_ACTIVE;
+                    e.window       = w ? makeWindow(w) : nullptr;
+                    e.focus_reason = static_cast<uint32_t>(reason);
                 });
             }));
 

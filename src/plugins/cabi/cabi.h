@@ -111,6 +111,7 @@ typedef struct hl_event {
     uint32_t button;       /* mouse button: BTN_* */
     uint32_t state;        /* press/release; key: state */
     uint32_t keycode;      /* key */
+    uint32_t focus_reason; /* window.active: the eFocusReason (picks the raise) */
     uint32_t axis;         /* axis enum */
     double   delta, delta_discrete;
     hl_window*    window;    /* window events (a ref is attached) */
