@@ -46,6 +46,9 @@
 #include "../../config/shared/complex/ComplexDataTypes.hpp" // Config::CGradientValueData (renderBorder)
 
 #include <hyprutils/os/FileDescriptor.hpp>
+#include "../../config/lua/ConfigManager.hpp"            // Config::Lua::mgr (hl_run_lua)
+#include "../../Compositor.hpp"                             // g_pCompositor (m_aqBackend newPointer)
+#include <aquamarine/backend/Backend.hpp>                  // CBackend events (newPointer, hl_pointer hotplug)
 
 #include <libdrm/drm_fourcc.h> // DRM_FORMAT_XRGB8888 (software RGBA textures)
 
@@ -70,6 +73,9 @@ namespace {
     }
     inline hl_monitor* makeMonitor(PHLMONITOR m) {
         return new hl_monitor(PHLMONITORREF(m));
+    }
+    inline hl_pointer* makePointer(SP<IPointer> p) {
+        return new hl_pointer(WP<IPointer>(p));
     }
 
     // Map the fork's fullscreen mode to the ABI's 0/1/2 encoding
@@ -230,6 +236,14 @@ void hl_monitor_ref(hl_monitor* m) {
 void hl_monitor_unref(hl_monitor* m) {
     if (m && m->rc.fetch_sub(1, std::memory_order_acq_rel) == 1)
         delete m;
+}
+void hl_pointer_ref(hl_pointer* p) {
+    if (p)
+        p->rc.fetch_add(1, std::memory_order_relaxed);
+}
+void hl_pointer_unref(hl_pointer* p) {
+    if (p && p->rc.fetch_sub(1, std::memory_order_acq_rel) == 1)
+        delete p;
 }
 
 // =======================================================================
@@ -695,6 +709,124 @@ uint32_t hl_workspaces(hl_ctx* c, hl_workspace** out, uint32_t cap) {
         return 0;
     } catch (...) {
         return 0;
+    }
+}
+
+// =======================================================================
+// pointers (the input device list)
+// =======================================================================
+
+uint32_t hl_pointers(hl_ctx* c, hl_pointer** out, uint32_t cap) {
+    try {
+        auto* ctx = reinterpret_cast<CCabiCtx*>(c);
+        if (!ctx || !cabiThreadOk(ctx))
+            return 0;
+        if (!g_pInputManager)
+            return 0;
+        uint32_t n = 0;
+        for (const auto& p : g_pInputManager->m_pointers) {
+            if (!p)
+                continue;
+            if (out && n < cap)
+                out[n] = makePointer(p);
+            n++;
+        }
+        return n;
+    } catch (const std::exception&) {
+        return 0;
+    } catch (...) {
+        return 0;
+    }
+}
+
+static IPointer* livePointer(hl_ctx* c, hl_pointer* p) {
+    auto* ctx = reinterpret_cast<CCabiCtx*>(c);
+    if (!ctx || !cabiThreadOk(ctx) || !p)
+        return nullptr;
+    auto live = p->ref.lock();
+    if (!live)
+        return nullptr;
+    return live.get();
+}
+
+uint32_t hl_pointer_is_touchpad(hl_ctx* c, hl_pointer* p) {
+    try {
+        auto* ptr = livePointer(c, p);
+        return ptr ? (uint32_t) ptr->m_isTouchpad : 0;
+    } catch (...) {
+        return 0;
+    }
+}
+
+uint32_t hl_pointer_is_virtual(hl_ctx* c, hl_pointer* p) {
+    try {
+        auto* ptr = livePointer(c, p);
+        return ptr ? (uint32_t) ptr->isVirtual() : 0;
+    } catch (...) {
+        return 0;
+    }
+}
+
+uint32_t hl_pointer_connected(hl_ctx* c, hl_pointer* p) {
+    try {
+        auto* ptr = livePointer(c, p);
+        return ptr ? (uint32_t) ptr->m_connected : 0;
+    } catch (...) {
+        return 0;
+    }
+}
+
+uint32_t hl_pointer_bus_type(hl_ctx* c, hl_pointer* p) {
+    try {
+        auto* ptr = livePointer(c, p);
+        if (!ptr)
+            return 0;
+        auto aq = ptr->aq();
+        auto* const H = aq ? aq->getLibinputHandle() : nullptr;
+        if (!H)
+            return 0;
+        return libinput_device_get_id_bustype(H);
+    } catch (...) {
+        return 0;
+    }
+}
+
+hl_error_t hl_pointer_name(hl_ctx* c, hl_pointer* p, hl_str_t* out) {
+    try {
+        auto* ctx = reinterpret_cast<CCabiCtx*>(c);
+        if (!out)
+            return HL_E_ARG;
+        auto* ptr = livePointer(c, p);
+        if (!ptr)
+            return HL_E_NOT_FOUND;
+        *out = ctx->scratch(ptr->m_hlName);
+        return HL_E_OK;
+    } catch (...) {
+        return HL_E_FAILED;
+    }
+}
+
+uint64_t hl_pointer_id(hl_ctx* c, hl_pointer* p) {
+    try {
+        auto* ptr = livePointer(c, p);
+        return ptr ? reinterpret_cast<uint64_t>(ptr) : 0;
+    } catch (...) {
+        return 0;
+    }
+}
+
+hl_error_t hl_run_lua(hl_ctx* c, const char* code) {
+    try {
+        auto* ctx = reinterpret_cast<CCabiCtx*>(c);
+        if (!ctx || !cabiThreadOk(ctx) || !code)
+            return HL_E_ARG;
+        auto mgr = Config::Lua::mgr();
+        if (!mgr)
+            return HL_E_FAILED;
+        auto r = mgr->eval(std::string(code));
+        return r ? HL_E_OK : HL_E_FAILED;
+    } catch (...) {
+        return HL_E_FAILED;
     }
 }
 
@@ -1304,6 +1436,50 @@ uint32_t hl_super_held(hl_ctx* c) {
 // events
 // =======================================================================
 
+// The pointer hotplug signal: fired when a pointer is added (the backend's
+// newPointer) or removed (a pointer's destroy). Set up lazily on the first
+// HL_EV_POINTER_CHANGED subscription. The destroy listeners are kept alive in
+// s_pointerListeners (the signal holds only weak refs); when a pointer is
+// destroyed its listener's strong ref outlives the signal and is dropped
+// later, which expires the (already gone) weak ref safely.
+static CSignalT<>                       s_pointerChanged;
+static std::vector<CHyprSignalListener> s_pointerListeners;
+static std::unordered_set<uintptr_t>    s_pointerArmed; // pointers with a destroy listener
+static bool                             s_pointerHotplugInited = false;
+
+static void armPointerDestroys() {
+    if (!g_pInputManager)
+        return;
+    for (const auto& p : g_pInputManager->m_pointers) {
+        if (!p)
+            continue;
+        auto addr = reinterpret_cast<uintptr_t>(p.get());
+        if (s_pointerArmed.count(addr))
+            continue;
+        s_pointerArmed.insert(addr);
+        s_pointerListeners.push_back(p->m_events.destroy.listen([addr]() {
+            s_pointerArmed.erase(addr);
+            s_pointerChanged.emit();
+        }));
+    }
+}
+
+static void initPointerHotplug() {
+    if (s_pointerHotplugInited)
+        return;
+    s_pointerHotplugInited = true;
+    if (!g_pCompositor || !g_pCompositor->m_aqBackend)
+        return;
+    // A new pointer: fire, then arm the destroy listeners. The new pointer is
+    // already in m_pointers by the time this runs — the compositor's own
+    // newPointer handler (added first, at compositor init) created it.
+    s_pointerListeners.push_back(g_pCompositor->m_aqBackend->events.newPointer.listen([](const SP<Aquamarine::IPointer>&) {
+        s_pointerChanged.emit();
+        armPointerDestroys();
+    }));
+    armPointerDestroys();
+}
+
 hl_error_t hl_subscribe(hl_ctx* c, hl_event_mask_t mask, hl_dispatch_fn dispatch, void* ud) {
     try {
         auto* ctx = reinterpret_cast<CCabiCtx*>(c);
@@ -1484,6 +1660,16 @@ hl_error_t hl_subscribe(hl_ctx* c, hl_event_mask_t mask, hl_dispatch_fn dispatch
                     e.kind = HL_EV_MON_LAYOUT;
                 });
             }));
+
+        if (mask & HL_EV_POINTER_CHANGED) {
+            initPointerHotplug();
+            ctx->m_listeners.emplace_back(s_pointerChanged.listen([emit]() {
+                emit([&](hl_event_t& e) {
+                    e.kind = HL_EV_POINTER_CHANGED;
+                    e.cancellable = 0;
+                });
+            }));
+        }
 
         return HL_E_OK;
     } catch (const std::exception&) {

@@ -58,6 +58,7 @@ typedef struct hl_ctx        hl_ctx;
 typedef struct hl_window     hl_window;
 typedef struct hl_workspace  hl_workspace;
 typedef struct hl_monitor    hl_monitor;
+typedef struct hl_pointer    hl_pointer;
 
 /* ---- by-value types ---------------------------------------------------- */
 /*
@@ -102,6 +103,7 @@ typedef uint32_t hl_event_mask_t;
 #define HL_EV_MON_LAYOUT        (1u << 28) /* usable-area/layout changed */
 #define HL_EV_CONFIG_RELOAD     (1u << 29)
 #define HL_EV_EXIT              (1u << 30)
+#define HL_EV_POINTER_CHANGED   (1u << 31)   /* a pointer added or removed */
 
 typedef struct hl_event {
     uint32_t kind;         /* an HL_EV_* bit (as a value, not a mask) */
@@ -242,6 +244,33 @@ uint32_t hl_workspace_number(hl_ctx* ctx, hl_workspace* ws);
 hl_error_t hl_monitor_active_workspace(hl_ctx* ctx, hl_monitor* m, hl_workspace** out);
 /* The monitor's full logical box. */
 hl_error_t hl_monitor_logical_box(hl_ctx* ctx, hl_monitor* m, hl_box_t* out);
+
+/* ---- pointers (the input device list) --------------------------------- */
+/* Enumerate the connected pointers (mice, touchpads, virtual). Returns the
+ * count; fills `out` with up to `cap` refcounted handles (call
+ * hl_pointer_unref to release). */
+uint32_t hl_pointers(hl_ctx* ctx, hl_pointer** out, uint32_t cap);
+void     hl_pointer_ref(hl_pointer* p);
+void     hl_pointer_unref(hl_pointer* p);
+/* 1 if the pointer is a touchpad (libinput touchpad class), else 0.
+ * HL_E_NOT_FOUND if the handle expired. */
+uint32_t hl_pointer_is_touchpad(hl_ctx* ctx, hl_pointer* p);
+/* 1 if the pointer is virtual (a composited/synthesized pointer), else 0. */
+uint32_t hl_pointer_is_virtual(hl_ctx* ctx, hl_pointer* p);
+/* 1 if the pointer is connected to the cursor (has a libinput device), 0 if
+ * not (e.g. a virtual pointer with no physical backing). */
+uint32_t hl_pointer_connected(hl_ctx* ctx, hl_pointer* p);
+/* The libinput bus type (BUS_* in linux/input.h): 3=USB, 5=Bluetooth, 6=virtual.
+ * 0 if the handle expired or has no libinput device. */
+uint32_t hl_pointer_bus_type(hl_ctx* ctx, hl_pointer* p);
+/* The pointer's HL device name (m_hlName); the plugin uses it in
+ * hl.device({name=...}) to flip the device's enabled state. */
+hl_error_t hl_pointer_name(hl_ctx* ctx, hl_pointer* p, hl_str_t* out);
+/* The pointer's address (a stable identity, like window_id). 0 if expired. */
+uint64_t   hl_pointer_id(hl_ctx* ctx, hl_pointer* p);
+/* Run a Lua snippet on the config manager (the same path as the `hl.` API).
+ * HL_E_OK if it ran, HL_E_FAILED on a Lua error. */
+hl_error_t hl_run_lua(hl_ctx* ctx, const char* code);
 /* Set the compositor fullscreen modes; pass -1 (0xFFFFFFFF) to leave one
  * unchanged. Values mirror eFullscreenMode (0 none, 1 maximized, 2 full). */
 hl_error_t hl_window_set_fs_mode(hl_ctx* ctx, hl_window* w, uint32_t internal, uint32_t client);

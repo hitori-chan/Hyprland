@@ -21,6 +21,7 @@
 #include "../../render/pass/PassElement.hpp"                // IPassElement, ePassElementType
 #include "../../SharedDefs.hpp"                             // eRenderStage
 #include "../../output/Monitor.hpp"                         // Monitor::CMonitor (m_scale, logicalBox, m_position)
+#include "../../devices/IPointer.hpp"                         // IPointer (hl_pointer handle)
 
 // The handle structs. Each holds a WEAK reference to the compositor object
 // plus an atomic refcount of how many plugin-side references are live. The
@@ -42,6 +43,14 @@ struct hl_monitor {
     PHLMONITORREF    ref;
     std::atomic<int> rc{ 1 };
     explicit hl_monitor(PHLMONITORREF r) : ref(r) {}
+};
+
+// A pointer (mouse, touchpad, tablet pointer, virtual). Wraps a WEAK ref to
+// the compositor's IPointer; an expired object surfaces as HL_E_NOT_FOUND.
+struct hl_pointer {
+    WP<IPointer>     ref;
+    std::atomic<int> rc{ 1 };
+    explicit hl_pointer(WP<IPointer> r) : ref(r) {}
 };
 
 // A refcounted GPU texture. Built in the warm pass (outside a frame) and
