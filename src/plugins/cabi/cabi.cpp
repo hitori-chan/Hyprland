@@ -20,7 +20,9 @@
 #include "../../managers/fullscreen/FullscreenController.hpp"
 #include "../../desktop/view/window/Window.hpp"
 #include "../../desktop/view/window/WaylandBackend.hpp"
+#include "../../desktop/view/window/X11Backend.hpp"
 #include "../../protocols/XDGShell.hpp"
+#include "../../xwayland/XSurface.hpp"
 #include "../../layout/LayoutManager.hpp"
 #include "../../layout/target/Target.hpp"
 #include "../../layout/target/WindowTarget.hpp"
@@ -782,6 +784,117 @@ hl_error_t hl_window_min_max_size(hl_ctx* c, hl_window* wh, hl_box_t* min, hl_bo
         return HL_E_FAILED;
     } catch (...) {
         return HL_E_FAILED;
+    }
+}
+
+uint32_t hl_window_is_x11(hl_ctx* c, hl_window* wh) {
+    try {
+        auto* ctx = reinterpret_cast<CCabiCtx*>(c);
+        if (!ctx || !cabiThreadOk(ctx) || !wh)
+            return 0;
+        auto W = wh->ref.lock();
+        return W && W->backend().isX11() ? 1u : 0u;
+    } catch (...) {
+        return 0;
+    }
+}
+
+uint32_t hl_window_has_parent(hl_ctx* c, hl_window* wh) {
+    try {
+        auto* ctx = reinterpret_cast<CCabiCtx*>(c);
+        if (!ctx || !cabiThreadOk(ctx) || !wh)
+            return 0;
+        auto W = wh->ref.lock();
+        return W && W->backend().parent() ? 1u : 0u;
+    } catch (...) {
+        return 0;
+    }
+}
+
+uint32_t hl_window_override_redirect(hl_ctx* c, hl_window* wh) {
+    try {
+        auto* ctx = reinterpret_cast<CCabiCtx*>(c);
+        if (!ctx || !cabiThreadOk(ctx) || !wh)
+            return 0;
+        auto W = wh->ref.lock();
+        return W && W->backend().traits().overrideRedirect ? 1u : 0u;
+    } catch (...) {
+        return 0;
+    }
+}
+
+hl_error_t hl_window_monitor(hl_ctx* c, hl_window* wh, hl_monitor** out) {
+    try {
+        auto* ctx = reinterpret_cast<CCabiCtx*>(c);
+        if (!ctx)
+            return HL_E_ARG;
+        if (!cabiThreadOk(ctx))
+            return HL_E_THREAD;
+        if (!wh || !out)
+            return HL_E_ARG;
+        auto W = wh->ref.lock();
+        if (!W)
+            return HL_E_NOT_FOUND;
+        auto MON = W->m_monitor.lock();
+        if (!MON)
+            return HL_E_NOT_FOUND;
+        *out = makeMonitor(MON);
+        return HL_E_OK;
+    } catch (const std::exception&) {
+        return HL_E_FAILED;
+    } catch (...) {
+        return HL_E_FAILED;
+    }
+}
+
+double hl_window_border_size(hl_ctx* c, hl_window* wh) {
+    try {
+        auto* ctx = reinterpret_cast<CCabiCtx*>(c);
+        if (!ctx || !cabiThreadOk(ctx) || !wh)
+            return 0.0;
+        auto W = wh->ref.lock();
+        if (!W)
+            return 0.0;
+        return std::max(0, W->presentation().borderSize());
+    } catch (...) {
+        return 0.0;
+    }
+}
+
+uint32_t hl_window_grant_exempt(hl_ctx* c, hl_window* wh) {
+    try {
+        auto* ctx = reinterpret_cast<CCabiCtx*>(c);
+        if (!ctx || !cabiThreadOk(ctx) || !wh)
+            return 0;
+        auto W = wh->ref.lock();
+        if (!W)
+            return 0;
+        if (W->fullscreenPolicy().pendingClientRequest().mode.has_value())
+            return 1u;
+        if (const auto TOP = cabiXdgToplevel(W);
+            TOP && (TOP->m_state.requestsFullscreen.value_or(false) || TOP->m_state.requestsMaximize.value_or(false) ||
+                    std::ranges::contains(TOP->m_pendingApply.states, XDG_TOPLEVEL_STATE_FULLSCREEN) ||
+                    std::ranges::contains(TOP->m_pendingApply.states, XDG_TOPLEVEL_STATE_MAXIMIZED)))
+            return 1u;
+        if (const auto X11 = [&] {
+                if (W->backend().isX11())
+                    if (const auto* B = dynamic_cast<const Desktop::View::CX11Backend*>(&W->backend()))
+                        return B->m_xwaylandSurface.lock();
+                return SP<CXWaylandSurface>{};
+            }();
+            X11 && (X11->m_fullscreen || X11->m_maximized ||
+                    X11->m_state.requestsFullscreen.value_or(false) || X11->m_state.requestsMaximize.value_or(false)))
+            return 1u;
+        if (W->m_ruleApplicator) {
+            const auto& STATIC = W->m_ruleApplicator->static_;
+            if (STATIC.fullscreen.value_or(false) || STATIC.maximize.value_or(false) ||
+                STATIC.fullscreenStateInternal.value_or(0) != 0 || STATIC.fullscreenStateClient.value_or(0) != 0)
+                return 1u;
+        }
+        const auto MODES = Fullscreen::controller()->getFullscreenModes(W);
+        return (MODES.internal != Fullscreen::FSMODE_NONE || MODES.client != Fullscreen::FSMODE_NONE) ? 1u : 0u;
+    } catch (...) {
+        return 0;
     }
 }
 

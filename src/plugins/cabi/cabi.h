@@ -210,6 +210,16 @@ hl_error_t hl_window_set_geom(hl_ctx* ctx, hl_window* w, double x, double y, dou
 hl_error_t hl_monitor_workarea(hl_ctx* ctx, hl_monitor* m, hl_box_t* out);
 /* The toplevel's min/max size (logical px); a pinned axis has min == max. */
 hl_error_t hl_window_min_max_size(hl_ctx* ctx, hl_window* w, hl_box_t* min, hl_box_t* max);
+/* Placement queries (hyprplace): backend kind, dialog parent, X11
+ * override-redirect, the window's monitor, its border width, and whether a
+ * fullscreen/maximize grant is in play (pending client request, xdg/x11
+ * requests, a rule, or an applied mode) — a window exempt from placement. */
+uint32_t hl_window_is_x11(hl_ctx* ctx, hl_window* w);
+uint32_t hl_window_has_parent(hl_ctx* ctx, hl_window* w);
+uint32_t hl_window_override_redirect(hl_ctx* ctx, hl_window* w);
+hl_error_t hl_window_monitor(hl_ctx* ctx, hl_window* w, hl_monitor** out);
+double   hl_window_border_size(hl_ctx* ctx, hl_window* w);
+uint32_t hl_window_grant_exempt(hl_ctx* ctx, hl_window* w);
 /* Set the compositor fullscreen modes; pass -1 (0xFFFFFFFF) to leave one
  * unchanged. Values mirror eFullscreenMode (0 none, 1 maximized, 2 full). */
 hl_error_t hl_window_set_fs_mode(hl_ctx* ctx, hl_window* w, uint32_t internal, uint32_t client);
