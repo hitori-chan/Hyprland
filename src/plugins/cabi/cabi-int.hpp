@@ -157,6 +157,17 @@ class CCabiCtx {
     };
     std::vector<SP<SRenderListener>> m_renders;
 
+    // Per-monitor pre-scanout callbacks (render.preChecks). A plugin with an
+    // ontop surface (a bar, notification cards) forces the monitor off its
+    // solitary/direct-scanout latch from here while the surface is visible —
+    // otherwise the compositor skips the workspace render and the card is
+    // never composited over a fullscreen client.
+    struct SPrechecksListener {
+        hl_prechecks_fn fn = nullptr;
+        void*           ud = nullptr;
+    };
+    std::vector<SP<SPrechecksListener>> m_prechecks;
+
     // String scratch: a small rotating pool so a single query can return
     // several distinct strings (e.g. window appID + title). Each hl_str_t
     // points into one buffer and stays valid until that buffer is reused by

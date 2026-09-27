@@ -452,6 +452,19 @@ typedef void (*hl_draw_fn)(hl_canvas* cv, void* ud);
  * (hl_shutdown clears it). Invoked once per frame for each rendered monitor. */
 hl_error_t hl_render_listen(hl_ctx* ctx, uint32_t stage, hl_draw_fn draw, void* ud, void** out);
 
+/* Per-monitor callback that fires once per frame BEFORE the scanout decision
+ * (unlike the render stages, it also fires on a frame that will be a direct
+ * scanout). A plugin with an ontop surface (a bar, notification cards) uses
+ * it + hl_monitor_force_render to keep the workspace rendered while the
+ * surface is visible over a fullscreen client. */
+typedef void (*hl_prechecks_fn)(hl_monitor* mon, void* ud);
+hl_error_t hl_render_prechecks_listen(hl_ctx* ctx, hl_prechecks_fn fn, void* ud, void** out);
+
+/* Force the monitor's next frame to run a full workspace render: drops the
+ * solitary-client and direct-scanout latches (the compositor re-latches them
+ * once nothing ontop is up again). No-op off the event loop. */
+void hl_monitor_force_render(hl_ctx* ctx, hl_monitor* m);
+
 /* ---- canvas queries (monitor-local LOGICAL px; the fork scales) -------- */
 /* The monitor this frame renders (a ref is attached). */
 void hl_canvas_monitor(hl_canvas* cv, hl_monitor** out);
@@ -465,9 +478,12 @@ void hl_canvas_rect(hl_canvas* cv, hl_box_t box, hl_color_t color, uint32_t roun
 void hl_canvas_glass(hl_canvas* cv, hl_box_t box, hl_color_t color, uint32_t round, float rounding_power, uint32_t blur);
 /* A border ring of `size_px` thickness. */
 void hl_canvas_border(hl_canvas* cv, hl_box_t box, hl_color_t color, uint32_t round, float rounding_power, uint32_t size_px);
-/* Blit a (ready) texture into a logical box. No-ops if the texture is not
- * ready this frame. */
-void hl_canvas_texture(hl_canvas* cv, hl_texture* tex, hl_box_t box);
+/* The card's drop shadow: monitor-local logical box, physical range and
+ * opacity (the notification card's soft shadow). */
+void hl_canvas_shadow(hl_canvas* cv, hl_box_t box, uint32_t round, float rounding_power, uint32_t range, float a);
+/* Blit a (ready) texture into a logical box, optionally rounded. `a` is the
+ * opacity (1.0 = opaque). No-ops if the texture is not ready this frame. */
+void hl_canvas_texture(hl_canvas* cv, hl_texture* tex, hl_box_t box, uint32_t round, float rounding_power, float a);
 
 /* ---- textures (refcounted; build in the warm pass, draw in a later frame) */
 /* A text texture. `pt` is the font size in logical px; `max_width` 0 = no

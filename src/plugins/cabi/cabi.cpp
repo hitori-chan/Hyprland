@@ -2127,6 +2127,73 @@ hl_error_t hl_render_listen(hl_ctx* c, uint32_t stage, hl_draw_fn draw, void* ud
     }
 }
 
+hl_error_t hl_render_prechecks_listen(hl_ctx* c, hl_prechecks_fn fn, void* ud, void** out) {
+    try {
+        auto* ctx = reinterpret_cast<CCabiCtx*>(c);
+        if (!ctx)
+            return HL_E_ARG;
+        if (!cabiThreadOk(ctx))
+            return HL_E_THREAD;
+        if (ctx->m_shutdown || !fn || !out)
+            return HL_E_ARG;
+
+        // One listener for all prechecks callbacks (added on the first
+        // hl_render_prechecks_listen), walking m_prechecks per monitor per
+        // frame — the same shape as the render-stage listener.
+        if (ctx->m_prechecks.empty()) {
+            auto weak = ctx->m_weak;
+            ctx->m_listeners.emplace_back(Event::bus()->m_events.render.preChecks.listen([weak](PHLMONITOR m) {
+                auto ctxp = weak.lock();
+                if (!ctxp || ctxp->m_shutdown)
+                    return;
+                if (!m)
+                    return;
+                for (const auto& p : ctxp->m_prechecks)
+                    if (p && p->fn)
+                        p->fn(makeMonitor(m), p->ud);
+            }));
+        }
+
+        auto p     = makeShared<CCabiCtx::SPrechecksListener>();
+        p->fn      = fn;
+        p->ud      = ud;
+        void*   h  = p.get();
+        ctx->m_prechecks.push_back(std::move(p));
+        *out = h;
+        return HL_E_OK;
+    } catch (const std::exception&) {
+        return HL_E_FAILED;
+    } catch (...) {
+        return HL_E_FAILED;
+    }
+}
+
+void hl_monitor_force_render(hl_ctx* c, hl_monitor* mh) {
+    try {
+        auto* ctx = reinterpret_cast<CCabiCtx*>(c);
+        if (!ctx)
+            return;
+        if (!cabiThreadOk(ctx))
+            return;
+        if (!mh)
+            return;
+        auto M = mh->ref.lock();
+        if (!M)
+            return;
+        // Open the solitary gate so renderWorkspace runs and the ontop
+        // surface composites over a fullscreen client. Resetting solitary
+        // alone would SEGV on the transition frame: canAttemptDirectScanoutFast()
+        // stays true off m_lastScanout and attemptDirectScanout() would deref
+        // the now-null candidate. Leaving any active scanout first clears that
+        // latch so the scanout branch is skipped.
+        M->m_solitaryClient.reset();
+        if (!M->m_lastScanout.expired() || M->m_directScanoutIsActive)
+            M->handleDSleave();
+    } catch (const std::exception&) {
+    } catch (...) {
+    }
+}
+
 // ---- canvas queries ----
 
 void hl_canvas_monitor(hl_canvas* cv, hl_monitor** out) {
@@ -2199,7 +2266,21 @@ void hl_canvas_border(hl_canvas* cv, hl_box_t box, hl_color_t color, uint32_t ro
     }
 }
 
-void hl_canvas_texture(hl_canvas* cv, hl_texture* tex, hl_box_t box) {
+// The glass card's drop shadow (the C++ notification cards carried one):
+// monitor-local logical box + physical range; the renderer does the rest.
+void hl_canvas_shadow(hl_canvas* cv, hl_box_t box, uint32_t round, float rp, uint32_t range, float a) {
+    if (!cv || !Render::GL::g_pHyprOpenGL)
+        return;
+    if (!cv->mon.lock())
+        return;
+    try {
+        static const Config::CGradientValueData GRAD{CHyprColor{0.f, 0.f, 0.f, 0.451f}}; // Theme::SHADOW 0x73000000
+        Render::GL::g_pHyprOpenGL->renderRoundedShadow(cabiToPhys(cv, box), (int) round, rp, (int) range, GRAD, a);
+    } catch (...) {
+    }
+}
+
+void hl_canvas_texture(hl_canvas* cv, hl_texture* tex, hl_box_t box, uint32_t round, float rp, float a) {
     if (!cv || !tex || !tex->tex || !Render::GL::g_pHyprOpenGL)
         return;
     if (!cv->mon.lock())
@@ -2207,7 +2288,7 @@ void hl_canvas_texture(hl_canvas* cv, hl_texture* tex, hl_box_t box) {
     if (tex->tex->m_texID == 0)
         return; // warm/draw gate: never paint a texture in the frame it was created in
     try {
-        Render::GL::g_pHyprOpenGL->renderTexture(tex->tex, cabiToPhys(cv, box), {});
+        Render::GL::g_pHyprOpenGL->renderTexture(tex->tex, cabiToPhys(cv, box), {.a = a, .round = (int) round, .roundingPower = rp});
     } catch (...) {
     }
 }
