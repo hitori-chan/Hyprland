@@ -271,6 +271,30 @@ uint64_t   hl_pointer_id(hl_ctx* ctx, hl_pointer* p);
 /* Run a Lua snippet on the config manager (the same path as the `hl.` API).
  * HL_E_OK if it ran, HL_E_FAILED on a Lua error. */
 hl_error_t hl_run_lua(hl_ctx* ctx, const char* code);
+
+/* ---- drag state (the layout drag controller) --------------------------- */
+/* The window being move/resize-dragged right now, or null if none. The
+ * caller unrefs the handle. */
+hl_error_t hl_drag_target(hl_ctx* ctx, hl_window** out);
+/* The drag mode (eMouseBindMode): -1 invalid, 0 move, 1..3 resize. */
+int32_t    hl_drag_mode(hl_ctx* ctx);
+/* 1 if the drag threshold was reached, else 0. */
+uint32_t   hl_drag_threshold_reached(hl_ctx* ctx);
+/* 1 if the drag is a tiled (re-tiling) drag, else 0. */
+uint32_t   hl_drag_dragging_tiled(hl_ctx* ctx);
+/* The window's layout position (the target's position box). */
+hl_error_t hl_window_target_position(hl_ctx* ctx, hl_window* w, hl_box_t* out);
+/* Set the window's layout position (global; the target's setPositionGlobal
+ * with no update flags). */
+hl_error_t hl_window_set_position_global(hl_ctx* ctx, hl_window* w, hl_box_t box);
+/* Push the target's box to the client (after a position/size set). */
+hl_error_t hl_window_warp_position_size(hl_ctx* ctx, hl_window* w);
+
+/* ---- compositor config reads (the plugin's own values are hl_config_*) -- */
+/* Read an integer config value by name (e.g. "general:border_size").
+ * HL_E_OK on success, HL_E_NOT_FOUND if the key is absent. Colors are stored
+ * as packed int64 too, so this reads them as well. */
+hl_error_t hl_config_int(hl_ctx* ctx, const char* key, int64_t* out);
 /* Set the compositor fullscreen modes; pass -1 (0xFFFFFFFF) to leave one
  * unchanged. Values mirror eFullscreenMode (0 none, 1 maximized, 2 full). */
 hl_error_t hl_window_set_fs_mode(hl_ctx* ctx, hl_window* w, uint32_t internal, uint32_t client);

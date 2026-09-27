@@ -831,6 +831,133 @@ hl_error_t hl_run_lua(hl_ctx* c, const char* code) {
 }
 
 // =======================================================================
+// drag state + target geometry (the layout drag controller)
+// =======================================================================
+
+static Layout::Supplementary::CDragStateController* liveDragController(hl_ctx* c) {
+    auto* ctx = reinterpret_cast<CCabiCtx*>(c);
+    if (!ctx || !cabiThreadOk(ctx) || !g_layoutManager)
+        return nullptr;
+    return g_layoutManager->dragController().get();
+}
+
+hl_error_t hl_drag_target(hl_ctx* c, hl_window** out) {
+    try {
+        if (!out)
+            return HL_E_ARG;
+        auto* dc = liveDragController(c);
+        if (!dc)
+            return HL_E_ARG;
+        auto t = dc->target();
+        auto  W = t ? t->window() : nullptr;
+        if (!W) {
+            *out = nullptr;
+            return HL_E_OK; // no drag target (a valid null)
+        }
+        *out = makeWindow(W);
+        return HL_E_OK;
+    } catch (...) {
+        return HL_E_FAILED;
+    }
+}
+
+int32_t hl_drag_mode(hl_ctx* c) {
+    try {
+        auto* dc = liveDragController(c);
+        return dc ? (int32_t) dc->mode() : -1;
+    } catch (...) {
+        return -1;
+    }
+}
+
+uint32_t hl_drag_threshold_reached(hl_ctx* c) {
+    try {
+        auto* dc = liveDragController(c);
+        return (dc && dc->dragThresholdReached()) ? 1 : 0;
+    } catch (...) {
+        return 0;
+    }
+}
+
+uint32_t hl_drag_dragging_tiled(hl_ctx* c) {
+    try {
+        auto* dc = liveDragController(c);
+        return (dc && dc->draggingTiled()) ? 1 : 0;
+    } catch (...) {
+        return 0;
+    }
+}
+
+hl_error_t hl_window_target_position(hl_ctx* c, hl_window* wh, hl_box_t* out) {
+    try {
+        if (!out)
+            return HL_E_ARG;
+        auto* ctx = reinterpret_cast<CCabiCtx*>(c);
+        if (!ctx || !cabiThreadOk(ctx))
+            return HL_E_ARG;
+        auto W = wh ? wh->ref.lock() : nullptr;
+        if (!W || !W->windowTarget())
+            return HL_E_NOT_FOUND;
+        const auto P = W->windowTarget()->position();
+        *out         = hl_box_t{P.x, P.y, P.w, P.h};
+        return HL_E_OK;
+    } catch (...) {
+        return HL_E_FAILED;
+    }
+}
+
+hl_error_t hl_window_set_position_global(hl_ctx* c, hl_window* wh, hl_box_t box) {
+    try {
+        auto* ctx = reinterpret_cast<CCabiCtx*>(c);
+        if (!ctx || !cabiThreadOk(ctx))
+            return HL_E_ARG;
+        auto W = wh ? wh->ref.lock() : nullptr;
+        if (!W || !W->windowTarget())
+            return HL_E_NOT_FOUND;
+        W->windowTarget()->setPositionGlobal(CBox{Vector2D{box.x, box.y}, Vector2D{box.w, box.h}});
+        return HL_E_OK;
+    } catch (...) {
+        return HL_E_FAILED;
+    }
+}
+
+hl_error_t hl_window_warp_position_size(hl_ctx* c, hl_window* wh) {
+    try {
+        auto* ctx = reinterpret_cast<CCabiCtx*>(c);
+        if (!ctx || !cabiThreadOk(ctx))
+            return HL_E_ARG;
+        auto W = wh ? wh->ref.lock() : nullptr;
+        if (!W || !W->windowTarget())
+            return HL_E_NOT_FOUND;
+        W->windowTarget()->warpPositionSize();
+        return HL_E_OK;
+    } catch (...) {
+        return HL_E_FAILED;
+    }
+}
+
+// =======================================================================
+// compositor config reads
+// =======================================================================
+
+hl_error_t hl_config_int(hl_ctx* c, const char* key, int64_t* out) {
+    try {
+        auto* ctx = reinterpret_cast<CCabiCtx*>(c);
+        if (!ctx || !cabiThreadOk(ctx) || !key || !out)
+            return HL_E_ARG;
+        auto V = CConfigValue<Config::INTEGER>(std::string(key));
+        if (!V.good())
+            return HL_E_NOT_FOUND;
+        *out = *V;
+        return HL_E_OK;
+    } catch (...) {
+        return HL_E_FAILED;
+    }
+}
+
+
+
+// =======================================================================
 // window writes (geometry / maximize / focus)
 // =======================================================================
 
