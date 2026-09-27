@@ -108,6 +108,9 @@ typedef uint32_t hl_event_mask_t;
 typedef struct hl_event {
     uint32_t kind;         /* an HL_EV_* bit (as a value, not a mask) */
     uint32_t cancellable;  /* 1 if hl_event_cancel applies to this event */
+    uint32_t cancelled;    /* 1 if an EARLIER listener already cancelled it;
+                             * the plugin still sees the event and decides
+                             * (a bar strip click is not a card click) */
     /* by-value payloads — only the fields of the active kind are set */
     double   x, y;         /* mouse: position */
     uint32_t button;       /* mouse button: BTN_* */

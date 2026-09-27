@@ -57,7 +57,7 @@
 
 // The ABI version the plugin was built against. Bump on any breaking cabi.h
 // change; the plugin ejects on mismatch.
-static constexpr uint32_t CABI_ABI_VERSION = 1;
+static constexpr uint32_t CABI_ABI_VERSION = 2;
 
 namespace {
     // Build a plugin-owned handle (one ref) from a live strong ref.
@@ -1688,6 +1688,7 @@ hl_error_t hl_subscribe(hl_ctx* c, hl_event_mask_t mask, hl_dispatch_fn dispatch
                     e.cancellable = 1;
                     e.keycode     = k.keycode;
                     e.state       = (k.state == WL_KEYBOARD_KEY_STATE_PRESSED) ? 1 : 0;
+                    e.cancelled   = info.cancelled ? 1 : 0;
                     e._cancel_slot = &info;
                 });
             }));
@@ -1701,6 +1702,7 @@ hl_error_t hl_subscribe(hl_ctx* c, hl_event_mask_t mask, hl_dispatch_fn dispatch
                     e.state        = (b.state == WL_POINTER_BUTTON_STATE_PRESSED) ? 1 : 0;
                     e.x            = g_pInputManager->getMouseCoordsInternal().x;
                     e.y            = g_pInputManager->getMouseCoordsInternal().y;
+                    e.cancelled    = info.cancelled ? 1 : 0;
                     e._cancel_slot = &info;
                 });
             }));
@@ -1712,6 +1714,7 @@ hl_error_t hl_subscribe(hl_ctx* c, hl_event_mask_t mask, hl_dispatch_fn dispatch
                     e.cancellable  = 1;
                     e.x            = pos.x;
                     e.y            = pos.y;
+                    e.cancelled    = info.cancelled ? 1 : 0;
                     e._cancel_slot = &info;
                 });
             }));
@@ -1726,6 +1729,7 @@ hl_error_t hl_subscribe(hl_ctx* c, hl_event_mask_t mask, hl_dispatch_fn dispatch
                     e.delta_discrete  = (double) a.deltaDiscrete;
                     e.x               = g_pInputManager->getMouseCoordsInternal().x;
                     e.y               = g_pInputManager->getMouseCoordsInternal().y;
+                    e.cancelled       = info.cancelled ? 1 : 0;
                     e._cancel_slot    = &info;
                 });
             }));
