@@ -8,7 +8,7 @@
 #include "../notification/NotificationOverlay.hpp"
 #include "../layout/supplementary/WorkspaceAlgoMatcher.hpp"
 #include "../i18n/Engine.hpp"
-#include "cabi/cabi-int.hpp"
+#include "cabi/internal.hpp"
 
 CPluginSystem::CPluginSystem() {
     g_pFunctionHookSystem = makeUnique<CHookSystem>();

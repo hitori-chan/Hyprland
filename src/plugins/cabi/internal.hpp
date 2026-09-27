@@ -1,6 +1,6 @@
-// cabi-int.hpp — C++-only internals for the cabi C ABI. Not installed; the
-// installed/parsed header is cabi.h (valid C). This file names the handle
-// struct layouts and the context the loader constructs.
+// internal.hpp — C++-only internals for the cabi C ABI. Not installed;
+// the installed/parsed header is cabi.h (valid C). This file names the
+// handle struct layouts and the context the loader constructs.
 #pragma once
 
 #include "cabi.h"

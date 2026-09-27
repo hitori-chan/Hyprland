@@ -1,4 +1,4 @@
-// cabi-notify.cpp — the cabi surface for the notification port: markup
+// notify.cpp — the cabi surface for the notification port: markup
 // text, focused-keyboard state, the cursor override, X11 pid/activation,
 // pointer-grab state, and the async file-icon decode. Its own TU because
 // the notification rasterizer (pango + cairo) and the decode worker are
@@ -8,7 +8,7 @@
 // wrapped so a throwing compositor call becomes an error code, never an
 // exception across the boundary (crash class 2, neutralized here).
 
-#include "cabi-int.hpp"
+#include "internal.hpp"
 
 #include <algorithm>
 #include <atomic>

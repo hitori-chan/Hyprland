@@ -1,7 +1,7 @@
 // cabi.cpp — the C ABI implementation. Every function: thread-check, then a
 // try/catch so a throwing compositor call becomes HL_E_FAILED, never an
 // exception across the boundary (crash class 2, neutralized here).
-#include "cabi-int.hpp"
+#include "internal.hpp"
 
 #include <cstdarg>
 #include <cstdio>
@@ -88,7 +88,7 @@ namespace {
 
 // The cabi surface is referenced only by the dlopen'd Rust plugin (which
 // binds BIND_NOW), and the static library drops members with no in-tree
-// reference — so name every cabi-notify entry point here to force them
+// reference — so name every notify entry point here to force them
 // into the binary. New cabi-*.cpp entry points must be added to this list.
 __attribute__((used)) static const void* const kNotifySurface[] = {
     reinterpret_cast<const void*>(&hl_markup_text),

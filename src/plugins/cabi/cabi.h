@@ -1,5 +1,5 @@
 /*
- * cabi — the narrow C ABI that carries the compositor boundary for the
+ * The narrow C ABI (cabi) that carries the compositor boundary for the
  * single Rust plugin (awesome). Owned by the fork; the only C++<->Rust
  * boundary in the system. One rule: no C++ type, no reference, no
  * exception, no template crosses this header. Everything is by-value C
@@ -8,7 +8,7 @@
  *
  * This file is parsed by bindgen (the awesome crate's build.rs) and is
  * also the installed header `hyprland/src/plugins/cabi/cabi.h`. It must
- * stay valid C99 (the C++-only internals live in cabi-int.hpp).
+ * stay valid C99 (the C++-only internals live in internal.hpp).
  *
  * Threading: every hl_* call (except cabiAbiVersion) must run on the
  * event-loop thread recorded at context creation. A mismatch returns
