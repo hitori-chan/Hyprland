@@ -2234,7 +2234,7 @@ hl_error_t hl_ctl_register(hl_ctx* c, const char* name, int match_prefix, hl_ctl
                                                 void** out) {
     try {
         auto* ctx = (CCabiCtx*)c;
-        if (!ctx || !name || !fn || !out)
+        if (!ctx || !name || !fn)
             return HL_E_FAILED;
         auto hold = std::make_shared<SCtlCmd>(SCtlCmd{ fn, ctx->m_weak });
         IPC::Socket1::SCommand cmd;
@@ -2254,7 +2254,8 @@ hl_error_t hl_ctl_register(hl_ctx* c, const char* name, int match_prefix, hl_ctl
         auto sp = HyprlandAPI::registerHyprCtlCommand(ctx->m_handle, std::move(cmd));
         if (!sp)
             return HL_E_FAILED;
-        *out = sp.get();
+        if (out)
+            *out = sp.get();
         return HL_E_OK;
     } catch (const std::exception&) {
         return HL_E_FAILED;

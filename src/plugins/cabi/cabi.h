@@ -488,7 +488,7 @@ typedef int (*hl_ctl_handler_t)(hl_ctx* ctx, const hl_str_t* command, char** out
 
 /* Register a hyprctl verb. match_prefix: 1 = the verb matches as a prefix
  * (the handler sees the rest of the line), 0 = exact name only. *out
- * receives the command handle (opaque; the fork owns it). */
+ * receives the command handle (opaque; the fork owns it), when non-null. */
 hl_error_t hl_ctl_register(hl_ctx* ctx, const char* name, int match_prefix, hl_ctl_handler_t fn, void** out);
 
 /* ---- canvas queries (monitor-local LOGICAL px; the fork scales) -------- */
