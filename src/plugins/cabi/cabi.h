@@ -363,6 +363,7 @@ typedef enum {
     HL_CFG_BOOL,
     HL_CFG_FLOAT,
     HL_CFG_STRING,
+    HL_CFG_COLOR, /* the color is carried in num_default as a packed ABGR64 */
 } hl_cfg_type_t;
 
 /*

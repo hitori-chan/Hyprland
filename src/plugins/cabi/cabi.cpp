@@ -40,6 +40,7 @@
 #include "../../config/values/types/BoolValue.hpp"
 #include "../../config/values/types/FloatValue.hpp"
 #include "../../config/values/types/StringValue.hpp"
+#include "../../config/values/types/ColorValue.hpp"
 #include "../../plugins/PluginAPI.hpp"
 #include "../../render/Renderer.hpp"                   // g_pHyprRenderer, ITexture, addPassElement, damageBox, createTexture, renderText
 #include "../../render/OpenGL.hpp"                      // Render::GL::g_pHyprOpenGL (renderRect/Border/Texture)
@@ -310,6 +311,8 @@ hl_error_t hl_config_register(hl_ctx* c, const char* key, const char* desc,
                     return makeShared<Config::Values::CFloatValue>(key, D, (Config::FLOAT) num_default);
                 case HL_CFG_STRING:
                     return makeShared<Config::Values::CStringValue>(key, D, std::string(str_default ? str_default : ""));
+                case HL_CFG_COLOR:
+                    return makeShared<Config::Values::CColorValue>(key, D, (Config::INTEGER) num_default);
                 default:
                     return SP<Config::Values::IValue>();
             }
@@ -371,6 +374,12 @@ hl_error_t hl_config_get(hl_ctx* c, void* h, uint32_t* type, double* num, hl_str
                 auto v = dynamicPointerCast<Config::Values::CStringValue>(cv.val);
                 if (str && v)
                     *str = ctx->scratch(v->value());
+                break;
+            }
+            case HL_CFG_COLOR: {
+                auto v = dynamicPointerCast<Config::Values::CColorValue>(cv.val);
+                if (num && v)
+                    *num = (double) v->value();
                 break;
             }
             default:
