@@ -627,21 +627,27 @@ uint32_t hl_image_decode(hl_ctx* c, const char* path, int svg_px, uint32_t tint,
         if (!cabiImageAdmissible(P))
             return 0;
         const int SVG = (P.size() > 4 && P.substr(P.size() - 4) == ".svg") ? std::clamp(svg_px, 1, 256) : 0;
-        std::lock_guard<std::mutex> lk(s_mutex);
-        if (s_jobs.size() >= MAX_IMAGE_JOBS)
-            return 0; // the slot is taken: the caller retries later
-        const uint32_t TOKEN = s_nextToken.fetch_add(1, std::memory_order_relaxed);
-        auto           job   = makeUnique<SCabiImageJob>();
-        job->path            = std::move(P);
-        job->svgPx           = SVG;
-        job->tint            = tint != 0;
-        job->r               = r;
-        job->g               = g;
-        job->b               = b;
-        s_jobs[TOKEN]        = std::move(job);
-        s_queue.push_back(TOKEN);
+        uint32_t TOKEN = 0;
+        {
+            std::lock_guard<std::mutex> lk(s_mutex);
+            if (s_jobs.size() >= MAX_IMAGE_JOBS)
+                return 0; // the slot is taken: the caller retries later
+            TOKEN = s_nextToken.fetch_add(1, std::memory_order_relaxed);
+            auto  job = makeUnique<SCabiImageJob>();
+            job->path = std::move(P);
+            job->svgPx = SVG;
+            job->tint  = tint != 0;
+            job->r     = r;
+            job->g     = g;
+            job->b     = b;
+            s_jobs[TOKEN]   = std::move(job);
+            s_queue.push_back(TOKEN);
+            s_cv.notify_one(); // a live worker picks it up on wake
+        }
+        // spawn OUTSIDE the lock: the ensure takes s_mutex itself, and the
+        // non-recursive mutex would hang the first decode of the process
+        // lifetime (caller held the lock from above)
         cabiImageEnsureWorker();
-        s_cv.notify_one();
         return TOKEN;
     } catch (const std::exception&) {
         return 0;
