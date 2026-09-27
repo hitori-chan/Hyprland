@@ -2259,6 +2259,29 @@ hl_error_t hl_texture_from_rgba(hl_ctx* c, const uint8_t* data, uint32_t w, uint
     }
 }
 
+// ARGB8888: premultiplied BGRA WITH alpha — the fd.o image-data layout,
+// which XRGB8888's opaque placeholder cannot carry.
+hl_error_t hl_texture_from_argb(hl_ctx* c, const uint8_t* data, uint32_t w, uint32_t h, uint32_t stride, hl_texture** out) {
+    try {
+        auto* ctx = reinterpret_cast<CCabiCtx*>(c);
+        if (!ctx)
+            return HL_E_ARG;
+        if (!cabiThreadOk(ctx))
+            return HL_E_THREAD;
+        if (ctx->m_shutdown || !data || !out || w == 0 || h == 0)
+            return HL_E_ARG;
+        auto t = g_pHyprRenderer->createTexture(DRM_FORMAT_ARGB8888, const_cast<uint8_t*>(data), stride, { (double) w, (double) h }, false, false);
+        if (!t)
+            return HL_E_FAILED;
+        *out = new hl_texture(std::move(t));
+        return HL_E_OK;
+    } catch (const std::exception&) {
+        return HL_E_FAILED;
+    } catch (...) {
+        return HL_E_FAILED;
+    }
+}
+
 void hl_texture_size(hl_texture* t, uint32_t* w, uint32_t* h) {
     if (!t || !t->tex)
         return;

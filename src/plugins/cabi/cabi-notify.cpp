@@ -905,3 +905,61 @@ hl_error_t hl_chevron_texture(hl_ctx* c, uint32_t dir, hl_color_t col, uint32_t 
         return HL_E_FAILED;
     }
 }
+
+// The deterministic generic mark an iconless card wears when neither an
+// identity nor the fallback face dir resolves: a rounded plate in the
+// theme's frame color with a 2x2 grid of rounded squares in the ink
+// (the theme's application-default-icon when the theme ships one is the
+// first choice, resolved on the plugin side).
+hl_error_t hl_generic_mark_texture(hl_ctx* c, hl_color_t plate, hl_color_t ink, uint32_t px, hl_texture** out) {
+    try {
+        auto* ctx = reinterpret_cast<CCabiCtx*>(c);
+        if (!ctx)
+            return HL_E_ARG;
+        if (!cabiThreadOk(ctx))
+            return HL_E_THREAD;
+        if (ctx->m_shutdown || !out || px < 8)
+            return HL_E_ARG;
+
+        const CHyprColor PL{plate.r, plate.g, plate.b, plate.a};
+        const CHyprColor IN{ink.r, ink.g, ink.b, ink.a};
+        auto* SURF = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, (int)px, (int)px);
+        if (!SURF)
+            return HL_E_FAILED;
+        auto* CT = cairo_create(SURF);
+        auto rounded = [&](double x, double y, double w, double h, double r) {
+            cairo_new_sub_path(CT);
+            cairo_arc(CT, x + w - r, y + r, r, -M_PI_2, 0);
+            cairo_arc(CT, x + w - r, y + h - r, r, 0, M_PI_2);
+            cairo_arc(CT, x + r, y + h - r, r, M_PI_2, M_PI);
+            cairo_arc(CT, x + r, y + r, r, M_PI, 1.5 * M_PI);
+            cairo_close_path(CT);
+        };
+        rounded(0, 0, px, px, px * 0.22);
+        cairo_set_source_rgba(CT, PL.r, PL.g, PL.b, PL.a * 0.55);
+        cairo_fill(CT);
+        const double G = px * 0.16, GAP = px * 0.12;
+        const double X0 = (px - (2 * G + GAP)) / 2;
+        for (int q = 0; q < 2; q++)
+            for (int r = 0; r < 2; r++) {
+                rounded(X0 + q * (G + GAP), X0 + r * (G + GAP), G, G, G * 0.35);
+                cairo_set_source_rgba(CT, IN.r, IN.g, IN.b, IN.a * 0.7);
+                cairo_fill(CT);
+            }
+        cairo_destroy(CT);
+        if (cairo_surface_status(SURF) != CAIRO_STATUS_SUCCESS) {
+            cairo_surface_destroy(SURF);
+            return HL_E_FAILED;
+        }
+        auto tex = g_pHyprRenderer->createTexture(SURF);
+        cairo_surface_destroy(SURF);
+        if (!tex)
+            return HL_E_FAILED;
+        *out = new hl_texture(std::move(tex));
+        return HL_E_OK;
+    } catch (const std::exception&) {
+        return HL_E_FAILED;
+    } catch (...) {
+        return HL_E_FAILED;
+    }
+}
