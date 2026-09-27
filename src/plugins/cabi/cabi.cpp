@@ -588,6 +588,30 @@ hl_error_t hl_monitor_at(hl_ctx* c, double x, double y, hl_monitor** out) {
     }
 }
 
+hl_error_t hl_monitor_containing(hl_ctx* c, double x, double y, hl_monitor** out) {
+    try {
+        auto* ctx = reinterpret_cast<CCabiCtx*>(c);
+        if (!ctx)
+            return HL_E_ARG;
+        if (!cabiThreadOk(ctx))
+            return HL_E_THREAD;
+        if (!out)
+            return HL_E_ARG;
+        const Vector2D pos{x, y};
+        for (const auto& M : State::monitorState()->monitors())
+            if (M->logicalBox().containsPoint(pos)) {
+                *out = makeMonitor(M);
+                return HL_E_OK;
+            }
+        *out = nullptr; // a valid null: the point is in a gap
+        return HL_E_OK;
+    } catch (const std::exception&) {
+        return HL_E_FAILED;
+    } catch (...) {
+        return HL_E_FAILED;
+    }
+}
+
 hl_error_t hl_focus_window(hl_ctx* c, hl_window** out) {
     try {
         auto* ctx = reinterpret_cast<CCabiCtx*>(c);

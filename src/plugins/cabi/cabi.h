@@ -193,6 +193,10 @@ hl_error_t hl_workspace_get(hl_ctx* ctx, hl_workspace* ws,
 hl_error_t hl_monitor_get(hl_ctx* ctx, hl_monitor* m,
     hl_str_t* name, hl_box_t* box, float* scale, uint32_t* focused);
 hl_error_t hl_monitor_at(hl_ctx* ctx, double x, double y, hl_monitor** out);
+/* The monitor whose logical box actually contains the point, or null (a valid
+ * null, not an error) if the point is in a gap between monitors. Unlike
+ * hl_monitor_at, which always returns the nearest. */
+hl_error_t hl_monitor_containing(hl_ctx* ctx, double x, double y, hl_monitor** out);
 
 hl_error_t hl_focus_window(hl_ctx* ctx, hl_window** out);
 hl_error_t hl_focus_monitor(hl_ctx* ctx, hl_monitor** out);
