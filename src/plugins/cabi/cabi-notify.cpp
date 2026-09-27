@@ -290,7 +290,8 @@ hl_error_t hl_markup_text(hl_ctx* c, const char* text, hl_color_t col, uint32_t 
             // is rendered with the whitelist so a stray tag shapes rather
             // than shows (the sanitizer upstream already guarantees the
             // whitelist for real input)
-            std::string md = HASLINKS ? cabiConvertLinks(text, cabiHexOf(COL), linkSpans) : std::string(text);
+            const CHyprColor LINKCOL{link_col->r, link_col->g, link_col->b, link_col->a};
+            std::string md = HASLINKS ? cabiConvertLinks(text, cabiHexOf(LINKCOL), linkSpans) : std::string(text);
             char*   stripped = nullptr;
             GError* err      = nullptr;
             if (pango_parse_markup(md.c_str(), -1, 0, &attrs, &stripped, nullptr, &err)) {
