@@ -289,8 +289,9 @@ hl_error_t hl_markup_text(hl_ctx* c, const char* text, hl_color_t col, uint32_t 
             // link mode converts <a>; a plain string that still carries a '<'
             // is rendered with the whitelist so a stray tag shapes rather
             // than shows (the sanitizer upstream already guarantees the
-            // whitelist for real input)
-            const CHyprColor LINKCOL{link_col->r, link_col->g, link_col->b, link_col->a};
+            // whitelist for real input). link_col may be NULL here (plain
+            // mode that still carries a '<'): LINKCOL is only read in link mode.
+            const CHyprColor LINKCOL = HASLINKS ? CHyprColor{link_col->r, link_col->g, link_col->b, link_col->a} : CHyprColor{};
             std::string md = HASLINKS ? cabiConvertLinks(text, cabiHexOf(LINKCOL), linkSpans) : std::string(text);
             char*   stripped = nullptr;
             GError* err      = nullptr;
