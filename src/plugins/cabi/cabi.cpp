@@ -55,6 +55,7 @@
 #include <libdrm/drm_fourcc.h> // DRM_FORMAT_XRGB8888 (software RGBA textures)
 
 #include <algorithm>
+#include <mutex>
 
 // The ABI version the plugin was built against. Bump on any breaking cabi.h
 // change; the plugin ejects on mismatch.
@@ -68,8 +69,25 @@ namespace {
     inline hl_workspace* makeWorkspace(PHLWORKSPACE ws) {
         return new hl_workspace(PHLWORKSPACEREF(ws));
     }
+    // One hl_monitor per live PHLMONITOR, for the process life. A handle is
+    // an identity: plugins compare monitor pointers across separate queries
+    // (the warm pass stores the focused monitor, the draw pass compares it
+    // to the canvas monitor), so a fresh allocation per query would never
+    // match and the surface would never paint. The registry's ref keeps rc
+    // >= 1, so consumer unrefs never delete; dead monitors linger as
+    // weak-ref husks (bounded by the monitors ever connected).
+    std::mutex                                   g_monMutex;
+    std::unordered_map<const void*, UP<hl_monitor>> g_monHandles;
     inline hl_monitor* makeMonitor(PHLMONITOR m) {
-        return new hl_monitor(PHLMONITORREF(m));
+        std::lock_guard lock(g_monMutex);
+        auto           key = static_cast<const void*>(m.get());
+        auto           it  = g_monHandles.find(key);
+        if (it == g_monHandles.end()) {
+            auto h = new hl_monitor(PHLMONITORREF(m));
+            it    = g_monHandles.emplace(key, UP<hl_monitor>(h)).first;
+        }
+        it->second->rc.fetch_add(1, std::memory_order_relaxed); // the caller's ref
+        return it->second.get();
     }
     inline hl_pointer* makePointer(SP<IPointer> p) {
         return new hl_pointer(WP<IPointer>(p));
