@@ -86,6 +86,26 @@ namespace {
     }
 }
 
+// The cabi surface is referenced only by the dlopen'd Rust plugin (which
+// binds BIND_NOW), and the static library drops members with no in-tree
+// reference — so name every cabi-notify entry point here to force them
+// into the binary. New cabi-*.cpp entry points must be added to this list.
+__attribute__((used)) static const void* const kNotifySurface[] = {
+    reinterpret_cast<const void*>(&hl_markup_text),
+    reinterpret_cast<const void*>(&hl_keyboard_key),
+    reinterpret_cast<const void*>(&hl_cursor_override),
+    reinterpret_cast<const void*>(&hl_window_pid),
+    reinterpret_cast<const void*>(&hl_activation_token),
+    reinterpret_cast<const void*>(&hl_image_decode),
+    reinterpret_cast<const void*>(&hl_image_token_status),
+    reinterpret_cast<const void*>(&hl_image_token_size),
+    reinterpret_cast<const void*>(&hl_image_token_texture),
+    reinterpret_cast<const void*>(&hl_image_token_drop),
+    reinterpret_cast<const void*>(&hl_avatar_texture),
+    reinterpret_cast<const void*>(&hl_chevron_texture),
+    reinterpret_cast<const void*>(&hl_generic_mark_texture),
+};
+
 // =======================================================================
 // version + lifecycle
 // =======================================================================

@@ -471,22 +471,6 @@ uint32_t hl_window_pid(hl_ctx* c, hl_window* w) {
     }
 }
 
-uint32_t hl_window_is_x11(hl_ctx* c, hl_window* w) {
-    try {
-        auto* ctx = reinterpret_cast<CCabiCtx*>(c);
-        if (!ctx || !cabiThreadOk(ctx) || !w)
-            return 0;
-        auto W = w->ref.lock();
-        if (!W)
-            return 0;
-        return W->backend().isX11() ? 1u : 0u;
-    } catch (const std::exception&) {
-        return 0;
-    } catch (...) {
-        return 0;
-    }
-}
-
 hl_error_t hl_activation_token(hl_ctx* c, hl_str_t* out) {
     try {
         auto* ctx = reinterpret_cast<CCabiCtx*>(c);
