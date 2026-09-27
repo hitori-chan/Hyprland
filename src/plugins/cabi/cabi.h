@@ -478,6 +478,19 @@ hl_error_t hl_render_prechecks_listen(hl_ctx* ctx, hl_prechecks_fn fn, void* ud,
  * once nothing ontop is up again). No-op off the event loop. */
 void hl_monitor_force_render(hl_ctx* ctx, hl_monitor* m);
 
+/* ---- hyprctl verbs ------------------------------------------------------ */
+/* A verb handler: `command` is the FULL command line (e.g. "myplug state").
+ * Set *out to a malloc'd NUL-terminated response (the fork frees it) and
+ * return HL_E_OK, or leave *out null for an error reply. Runs on the
+ * event-loop thread between iterations; keep it short. The fork
+ * unregisters every plugin verb when the plugin unloads. */
+typedef int (*hl_ctl_handler_t)(hl_ctx* ctx, const hl_str_t* command, char** out);
+
+/* Register a hyprctl verb. match_prefix: 1 = the verb matches as a prefix
+ * (the handler sees the rest of the line), 0 = exact name only. *out
+ * receives the command handle (opaque; the fork owns it). */
+hl_error_t hl_ctl_register(hl_ctx* ctx, const char* name, int match_prefix, hl_ctl_handler_t fn, void** out);
+
 /* ---- canvas queries (monitor-local LOGICAL px; the fork scales) -------- */
 /* The monitor this frame renders (a ref is attached). */
 void hl_canvas_monitor(hl_canvas* cv, hl_monitor** out);

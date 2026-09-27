@@ -8,6 +8,7 @@
 #include <cstring>
 
 #include "../../event/EventBus.hpp"
+#include "../../ipc/s1/S1.hpp"
 #include "../../desktop/state/FocusState.hpp"
 #include "../../desktop/state/ViewState.hpp"
 #include "../../desktop/state/WindowState.hpp"
@@ -2196,6 +2197,46 @@ hl_error_t hl_render_prechecks_listen(hl_ctx* c, hl_prechecks_fn fn, void* ud, v
     } catch (const std::exception&) {
         return HL_E_FAILED;
     } catch (...) {
+        return HL_E_FAILED;
+    }
+}
+
+namespace {
+// The verb's handler + a weak ctx ref (the fork unregisters plugin verbs at
+// unload; the lock keeps a late dispatch from touching a freed ctx).
+struct SCtlCmd {
+    hl_ctl_handler_t fn;
+    WP<CCabiCtx>     weak;
+};
+} // namespace
+
+hl_error_t hl_ctl_register(hl_ctx* c, const char* name, int match_prefix, hl_ctl_handler_t fn,
+                                                void** out) {
+    try {
+        auto* ctx = (CCabiCtx*)c;
+        if (!ctx || !name || !fn || !out)
+            return HL_E_FAILED;
+        auto hold = std::make_shared<SCtlCmd>(SCtlCmd{ fn, ctx->m_weak });
+        IPC::Socket1::SCommand cmd;
+        cmd.name  = name;
+        cmd.match = match_prefix ? IPC::Socket1::COMMAND_MATCH_PREFIX : IPC::Socket1::COMMAND_MATCH_EXACT;
+        cmd.handler = [hold](const IPC::Socket1::SRequest& req) -> IPC::Socket1::SResponse {
+            auto ctx = hold->weak.lock();
+            if (!ctx || ctx->m_shutdown)
+                return IPC::Socket1::SResponse{ std::string{ "plugin gone" } };
+            char*    outstr = nullptr;
+            hl_str_t cmdstr{ req.command.data(), (uint32_t)req.command.size() };
+            int rc = hold->fn((hl_ctx*)ctx.get(), &cmdstr, &outstr);
+            std::string resp = (rc == HL_E_OK && outstr) ? std::string{ outstr } : std::string{ "error" };
+            free(outstr);
+            return IPC::Socket1::SResponse{ std::move(resp) };
+        };
+        auto sp = HyprlandAPI::registerHyprCtlCommand(ctx->m_handle, std::move(cmd));
+        if (!sp)
+            return HL_E_FAILED;
+        *out = sp.get();
+        return HL_E_OK;
+    } catch (const std::exception&) {
         return HL_E_FAILED;
     }
 }
