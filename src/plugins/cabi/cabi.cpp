@@ -60,11 +60,6 @@
 static constexpr uint32_t CABI_ABI_VERSION = 1;
 
 namespace {
-    // Every entry (except cabiAbiVersion) runs on the event-loop thread.
-    inline bool cabiThreadOk(const CCabiCtx* ctx) {
-        return std::this_thread::get_id() == ctx->m_thread;
-    }
-
     // Build a plugin-owned handle (one ref) from a live strong ref.
     inline hl_window* makeWindow(PHLWINDOW w) {
         return new hl_window(PHLWINDOWREF(w));

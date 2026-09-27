@@ -206,3 +206,9 @@ class CCabiCtx {
 // it in CPlugin::m_cabiCtx for the load lifetime). The single strong owner is
 // that SP; jobs/listeners hold the self-weak m_weak, which expires on reset.
 SP<CCabiCtx> cabiCreateCtx();
+
+// Every hl_* entry (except cabiAbiVersion) runs on the event-loop thread;
+// this is the first check of each. Shared by every cabi TU.
+inline bool cabiThreadOk(const CCabiCtx* ctx) {
+    return std::this_thread::get_id() == ctx->m_thread;
+}
