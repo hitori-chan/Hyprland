@@ -181,6 +181,16 @@ hl_error_t hl_window_get(hl_ctx* ctx, hl_window* w,
     uint32_t* floating, uint32_t* pinned, uint32_t* visible,
     uint32_t* allowed_over_fullscreen, uint32_t* urgent);
 hl_error_t hl_window_workspace(hl_ctx* ctx, hl_window* w, hl_workspace** out);
+/* The owning pid of the window's backend (0 if it has none or the handle
+ * expired). Pairs with hl_window_is_x11 for the X11 activation lookup. */
+uint32_t   hl_window_pid(hl_ctx* ctx, hl_window* w);
+/* 1 if the window is XWayland (X11): its activation arrives as a focus
+ * request we must make, not a token-validated xdg-activation. */
+uint32_t   hl_window_is_x11(hl_ctx* ctx, hl_window* w);
+/* Mint an xdg-activation token (the ActivationToken signal's payload):
+ * the Wayland sender spends it through xdg-activation to raise itself.
+ * HL_E_UNAVAILABLE when the protocol manager is down. */
+hl_error_t hl_activation_token(hl_ctx* ctx, hl_str_t* out);
 /* The window's stable identity (its address, valid while the window lives;
  * 0 if the handle's weak ref has expired). Keys a plugin's per-window map —
  * entries must be dropped on HL_EV_WINDOW_DESTROY so a reused address cannot
@@ -275,6 +285,26 @@ uint64_t   hl_pointer_id(hl_ctx* ctx, hl_pointer* p);
 /* Run a Lua snippet on the config manager (the same path as the `hl.` API).
  * HL_E_OK if it ran, HL_E_FAILED on a Lua error. */
 hl_error_t hl_run_lua(hl_ctx* ctx, const char* code);
+
+/* ---- cursor override (plugin-drawn surfaces own the pointer) ----------- */
+/* Set or clear the cursor shape override for the special-action group: a
+ * drawn surface under the pointer keeps the app from seeing enter/leave,
+ * so the shape is asserted here ("left_ptr" default, "pointer" over a
+ * hyperlink). `on` 0 or an empty shape clears it. */
+void hl_cursor_override(hl_ctx* ctx, const char* shape, uint32_t on);
+
+/* ---- focused keyboard (the inline-reply field) ------------------------- */
+/*
+ * The seat keyboard's state for one key (the active layout).
+ *  - `sym`: the keysym NAME (xkbcommon-names, e.g. "a", "Return",
+ *    "shift_l") — "Unknown" when the key maps to none
+ *  - `ctrl`/`alt`/`logo`: the EFFECTIVE modifiers (layout-aware)
+ *  - `utf8` (utf8_cap >= 5): the typed character, "" if the key types none
+ * HL_E_NOT_FOUND when no keyboard is connected (the caller passes the key
+ * through untouched).
+ */
+hl_error_t hl_keyboard_key(hl_ctx* ctx, uint32_t keycode, hl_str_t* sym,
+    uint32_t* ctrl, uint32_t* alt, uint32_t* logo, char* utf8, uint32_t utf8_cap);
 
 /* ---- drag state (the layout drag controller) --------------------------- */
 /* The window being move/resize-dragged right now, or null if none. The
@@ -448,6 +478,68 @@ hl_error_t hl_texture_from_rgba(hl_ctx* ctx, const uint8_t* data,
 void hl_texture_size(hl_texture* t, uint32_t* w, uint32_t* h);
 void hl_texture_ref(hl_texture* t);
 void hl_texture_unref(hl_texture* t);
+
+/* ---- markup text (the notification rasterizer) -------------------------- */
+/* A <a href> hit rectangle in the rendered texture: physical px, relative
+ * to the texture's top-left. Only produced when link_col is non-null. */
+typedef struct hl_link_rect {
+    float x0, y0, x1, y1;
+} hl_link_rect_t;
+
+/*
+ * Render a notification text block (plain or whitelisted Pango markup) to a
+ * texture. The markup whitelist is b/i/u/span/br, plus a when link_col is
+ * non-null; every other tag is dropped, and a string that fails to parse
+ * renders with its tags stripped — never raw markup. The plugin owns any
+ * cache (one call = one texture).
+ *  - `col`: base color; `pt`: absolute pixel size; `font` "" =
+ *    misc:font_family; `weight`: a Pango weight (400 = normal)
+ *  - `max_w`: wrap width in physical px (>= 1)
+ *  - `max_h`: > 0 caps the rendered height (the tail line ellipsizes);
+ *    < 0 caps LINES (single-paragraph text only); 0 = no cap
+ *  - `line_sp`: line spacing multiplier, 0 = none
+ *  - `link_col` non-NULL: <a> spans render in this color (underlined) and
+ *    their hit rectangles are reported in out_links/out_hrefs, at most
+ *    `links_cap` (HL_E_FULL when more were dropped; the texture is still
+ *    built). out_hrefs[i] pairs with out_links[i] and is valid until the
+ *    next call on the same ctx.
+ */
+hl_error_t hl_markup_text(hl_ctx* ctx, const char* text, hl_color_t col, uint32_t pt,
+    const char* font, uint32_t max_w, int32_t max_h, float line_sp, int32_t weight,
+    const hl_color_t* link_col, uint32_t links_cap,
+    hl_texture** out, uint32_t* out_w, uint32_t* out_h,
+    hl_link_rect_t* out_links, hl_str_t* out_hrefs);
+
+/* ---- async file-image decode (off the event loop) ---------------------- */
+/*
+ * Queue a decode of a local image file (PNG/JPEG/WebP/BMP/AVIF/JXL/SVG) on
+ * the fork's decode worker: a 4K icon must not stall a frame. `svg_px` is
+ * the raster viewport for SVG sources (0 = not SVG). `tint` repainting:
+ * the freedesktop symbolic convention — a symbolic mark (a pure-shape SVG
+ * the toolkit repaints) is decoded straight into r/g/b (alpha untouched),
+ * the way the C++ tintSurface did. Returns a token; 0 when no slot (a
+ * decode cannot be cancelled once queued, so the slot cap is the bound —
+ * the caller retries later, as the C++ gatherer path did).
+ */
+uint32_t hl_image_decode(hl_ctx* ctx, const char* path, int svg_px, uint32_t tint,
+    uint8_t r, uint8_t g, uint8_t b);
+/* 0 pending, 1 ready, 2 failed (bad file, too big, not an image);
+ * -1 unknown token. */
+int      hl_image_token_status(hl_ctx* ctx, uint32_t token);
+/* The decoded image's native pixel size (HL_E_NOT_FOUND until ready). */
+hl_error_t hl_image_token_size(hl_ctx* ctx, uint32_t token, uint32_t* w, uint32_t* h);
+/*
+ * A texture derived from the decoded image (call from the warm pass):
+ *  - mode 0 (fit): the whole image scaled to fit within max_px, aspect
+ *    kept (small images upload as-is)
+ *  - mode 1 (cover): cover-cropped to exactly w x h (the hero strip)
+ * The GOOD-filter downscale is the same one the C++ warm pass used.
+ */
+hl_error_t hl_image_token_texture(hl_ctx* ctx, uint32_t token, uint32_t mode,
+    uint32_t max_px, uint32_t w, uint32_t h, hl_texture** out, uint32_t* out_w, uint32_t* out_h);
+/* Release the token and its decoded buffer (safe on a pending or failed
+ * job; the textures it already produced stay alive). */
+void       hl_image_token_drop(hl_ctx* ctx, uint32_t token);
 
 /* ---- damage ------------------------------------------------------------- */
 /* Mark a monitor-local logical box dirty (schedules a repaint of `m`). */
