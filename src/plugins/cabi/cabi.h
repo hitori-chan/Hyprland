@@ -376,6 +376,19 @@ uint32_t hl_native_layer_at(hl_ctx* ctx);
  * are built on (a window move/resize drag only starts under Super). */
 uint32_t hl_super_held(hl_ctx* ctx);
 
+/* The pointer's current internal position (button events carry no coords;
+ * the plugin otherwise tracks them from move events). */
+void hl_mouse_coords(hl_ctx* ctx, double* x, double* y);
+/* Hand the pointer focus back to the compositor (a null surface focus): the
+ * window under the plugin's drawn surface gets its leave. The plugin calls
+ * this on ENTERING its surface (the cursor override then keeps the app from
+ * re-seeing enter/leave while the pointer stays on it). */
+void hl_pointer_focus_reset(hl_ctx* ctx);
+/* Re-run the compositor's own pointer focus resolution (a synthetic move):
+ * the window under a just-vacated surface gets its enter back. The plugin
+ * calls this on LEAVING its surface. */
+void hl_mouse_simulate_move(hl_ctx* ctx);
+
 /* ---- events ------------------------------------------------------------ */
 hl_error_t hl_subscribe(hl_ctx* ctx, hl_event_mask_t mask,
     hl_dispatch_fn dispatch, void* ud);

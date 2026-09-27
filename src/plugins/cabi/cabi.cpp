@@ -1594,6 +1594,38 @@ uint32_t hl_super_held(hl_ctx* c) {
     return (KB && (KB->getModifiers() & Input::HL_MODIFIER_META) != Input::HL_MODIFIER_NONE) ? 1 : 0;
 }
 
+// The pointer's current internal position (button events carry no coords;
+// the plugin otherwise tracks them from move events).
+void hl_mouse_coords(hl_ctx* c, double* x, double* y) {
+    auto* ctx = reinterpret_cast<CCabiCtx*>(c);
+    if (!ctx || !cabiThreadOk(ctx) || !g_pInputManager || !x || !y)
+        return;
+    const auto P = g_pInputManager->getMouseCoordsInternal();
+    *x = P.x;
+    *y = P.y;
+}
+
+// Hand the pointer focus back to the compositor (a null surface focus): the
+// window under the plugin's drawn surface gets its leave. The plugin calls
+// this on ENTERING its surface (the cursor override then keeps the app from
+// re-seeing enter/leave while the pointer stays on it).
+void hl_pointer_focus_reset(hl_ctx* c) {
+    auto* ctx = reinterpret_cast<CCabiCtx*>(c);
+    if (!ctx || !cabiThreadOk(ctx) || !g_pSeatManager)
+        return;
+    g_pSeatManager->setPointerFocus(nullptr, {});
+}
+
+// Re-run the compositor's own pointer focus resolution (a synthetic move):
+// the window under a just-vacated surface gets its enter back. The plugin
+// calls this on LEAVING its surface.
+void hl_mouse_simulate_move(hl_ctx* c) {
+    auto* ctx = reinterpret_cast<CCabiCtx*>(c);
+    if (!ctx || !cabiThreadOk(ctx) || !g_pInputManager)
+        return;
+    g_pInputManager->simulateMouseMovement();
+}
+
 // =======================================================================
 // events
 // =======================================================================
