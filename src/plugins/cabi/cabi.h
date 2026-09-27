@@ -355,6 +355,10 @@ hl_job_t hl_defer(hl_ctx* ctx, hl_job_fn fn, void* ud);        /* next idle */
 hl_job_t hl_timer(hl_ctx* ctx, uint32_t ms, uint32_t repeat,
     hl_job_fn fn, void* ud);
 hl_job_t hl_watch_fd(hl_ctx* ctx, int fd, hl_job_fn fn, void* ud); /* readable */
+/* Persistent readable watch: re-arms on every edge, never owns/closes the
+   fd (the plugin closes it after hl_job_cancel). An already-readable fd
+   fires on the next loop iteration. Returns 0 on failure. */
+hl_job_t hl_watch_fd_persistent(hl_ctx* ctx, int fd, hl_job_fn fn, void* ud);
 void     hl_job_cancel(hl_ctx* ctx, hl_job_t job);
 
 /* ---- config (register at init, read live) ------------------------------ */

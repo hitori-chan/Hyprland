@@ -173,7 +173,13 @@ class CCabiCtx {
     }
 
     // Jobs.
-    enum eJobKind : uint8_t { KIND_DEFER = 0, KIND_TIMER, KIND_FD };
+    enum eJobKind : uint8_t { KIND_DEFER = 0, KIND_TIMER, KIND_FD, KIND_FDP };
+    // wl_event_source data for KIND_FDP: the weak ctx + job token the ready
+    // callback looks up (the source is C-function based, no closures).
+    struct SFdpData {
+        WP<CCabiCtx> weak;
+        uint64_t     token = 0;
+    };
     struct SJob {
         uint64_t        token = 0;
         eJobKind        kind  = KIND_DEFER;
@@ -181,6 +187,8 @@ class CCabiCtx {
         uint64_t        doLaterSeq = 0;      // KIND_DEFER
         SP<CEventLoopTimer> timer;           // KIND_TIMER
         WP<SReadableWaiter> waiter;          // KIND_FD
+        wl_event_source*  rawSource = nullptr; // KIND_FDP
+        UP<SFdpData>      fdpData;           // KIND_FDP
         hl_job_fn       fn    = nullptr;
         void*           ud    = nullptr;
     };

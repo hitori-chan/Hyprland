@@ -146,6 +146,13 @@ void CCabiCtx::cancelJobInternal(UP<SJob>& job) {
                 job->waiter.reset();
             }
             break;
+        case KIND_FDP:
+            // the plugin owns the fd; only the source goes out
+            if (job->rawSource) {
+                wl_event_source_remove(job->rawSource);
+                job->rawSource = nullptr;
+            }
+            break;
     }
 }
 
@@ -1975,6 +1982,59 @@ hl_job_t hl_watch_fd(hl_ctx* c, int fd, hl_job_fn fn, void* ud) {
             jfn(jud);
         });
         job->active = true;
+        return job->token;
+    } catch (const std::exception&) {
+        return 0;
+    } catch (...) {
+        return 0;
+    }
+}
+
+// Persistent readable watch (KIND_FDP). Unlike hl_watch_fd (doOnReadable,
+// one-shot, the waiter owns + closes the fd), this adds a wl_event_source
+// that re-arms on every readable edge and never touches the fd — the plugin
+// keeps ownership and closes it after hl_job_cancel. An fd that is ALREADY
+// readable fires on the next loop iteration (normal wl semantics; the
+// one-shot variant would deliver nothing, as the job is inactive while the
+// synchronous callback runs).
+static int cabiFdpReady(int, uint32_t, void* data) {
+    auto* d = sc<CCabiCtx::SFdpData*>(data);
+    if (!d)
+        return 0;
+    if (auto ctx = d->weak.lock()) {
+        auto it = ctx->m_jobs.find(d->token);
+        if (it != ctx->m_jobs.end() && it->second->active) {
+            hl_job_fn jfn = it->second->fn;
+            void*     jud = it->second->ud;
+            jfn(jud);
+        }
+    }
+    return 0;
+}
+
+hl_job_t hl_watch_fd_persistent(hl_ctx* c, int fd, hl_job_fn fn, void* ud) {
+    try {
+        auto* ctx = reinterpret_cast<CCabiCtx*>(c);
+        if (!ctx)
+            return 0;
+        if (!cabiThreadOk(ctx))
+            return 0;
+        if (ctx->m_shutdown || !fn || fd < 0 || !g_pCompositor)
+            return 0;
+
+        auto* job = cabiMakeJob(ctx, CCabiCtx::KIND_FDP, fn, ud);
+        if (!job)
+            return 0;
+        auto  data = makeUnique<CCabiCtx::SFdpData>();
+        data->weak = ctx->m_weak;
+        data->token = job->token;
+        job->rawSource = wl_event_loop_add_fd(g_pCompositor->m_wlEventLoop, fd, WL_EVENT_READABLE, cabiFdpReady, data.get());
+        if (!job->rawSource) {
+            ctx->m_jobs.erase(job->token);
+            return 0;
+        }
+        job->fdpData = std::move(data);
+        job->active  = true;
         return job->token;
     } catch (const std::exception&) {
         return 0;
