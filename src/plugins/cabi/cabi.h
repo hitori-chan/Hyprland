@@ -553,3 +553,14 @@ void hl_damage(hl_ctx* ctx, hl_monitor* m, hl_box_t box);
 #endif
 
 #endif /* HYPRLAND_CABI_H */
+
+/* ---- avatar + chevron (generated faces, fold indicator) ---------------- */
+/* An initials avatar: bg_col filled px×px square, `text` centered in fg_col
+ * (bold, 0.38·px). The faceless-sender face (the C++ generatedAvatar). */
+hl_error_t hl_avatar_texture(hl_ctx* ctx, hl_color_t bg, const char* text, hl_color_t fg,
+    uint32_t px, const char* font, hl_texture** out);
+/* A Material chevron: two 45° strokes, round caps, centered in a px×px
+ * square. dir 0 = down, 1 = up. The row's fold indicator (a glyph's weight
+ * is the font's, never the theme's). */
+hl_error_t hl_chevron_texture(hl_ctx* ctx, uint32_t dir, hl_color_t col, uint32_t px,
+    hl_texture** out);

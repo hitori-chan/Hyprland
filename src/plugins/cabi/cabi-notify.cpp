@@ -800,3 +800,107 @@ void hl_image_token_drop(hl_ctx* c, uint32_t token) {
     } catch (...) {
     }
 }
+
+// =======================================================================
+// avatar + chevron (the generated faces and the fold indicator)
+// =======================================================================
+
+hl_error_t hl_avatar_texture(hl_ctx* c, hl_color_t bg, const char* text, hl_color_t fg, uint32_t px, const char* font, hl_texture** out) {
+    try {
+        auto* ctx = reinterpret_cast<CCabiCtx*>(c);
+        if (!ctx)
+            return HL_E_ARG;
+        if (!cabiThreadOk(ctx))
+            return HL_E_THREAD;
+        if (ctx->m_shutdown || !text || !*text || !out || px < 8)
+            return HL_E_ARG;
+
+        const CHyprColor BG{bg.r, bg.g, bg.b, bg.a};
+        const CHyprColor FG{fg.r, fg.g, fg.b, fg.a};
+        auto* SURF = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, (int)px, (int)px);
+        if (!SURF)
+            return HL_E_FAILED;
+        auto* CR = cairo_create(SURF);
+        cairo_set_source_rgb(CR, BG.r, BG.g, BG.b);
+        cairo_paint(CR);
+
+        static auto DEFAULTFONT = CConfigValue<std::string>("misc:font_family");
+        auto* LAYOUT = pango_cairo_create_layout(CR);
+        pango_layout_set_text(LAYOUT, text, -1);
+        auto* FONT = pango_font_description_new();
+        pango_font_description_set_family_static(FONT, (font && *font) ? font : (*DEFAULTFONT).c_str());
+        pango_font_description_set_size(FONT, std::max(8, (int)std::lround(px * 0.38)) * PANGO_SCALE);
+        pango_font_description_set_weight(FONT, PANGO_WEIGHT_BOLD);
+        pango_layout_set_font_description(LAYOUT, FONT);
+        pango_layout_set_alignment(LAYOUT, PANGO_ALIGN_CENTER);
+        pango_layout_set_width(LAYOUT, px * PANGO_SCALE);
+        int TW = 0, TH = 0;
+        pango_layout_get_pixel_size(LAYOUT, &TW, &TH);
+        cairo_set_source_rgba(CR, FG.r, FG.g, FG.b, FG.a);
+        cairo_move_to(CR, 0, (px - TH) / 2.0);
+        pango_cairo_show_layout(CR, LAYOUT);
+        pango_font_description_free(FONT);
+        g_object_unref(LAYOUT);
+        cairo_destroy(CR);
+        cairo_surface_flush(SURF);
+
+        auto tex = g_pHyprRenderer->createTexture(SURF);
+        cairo_surface_destroy(SURF);
+        if (!tex)
+            return HL_E_FAILED;
+        *out = new hl_texture(std::move(tex));
+        return HL_E_OK;
+    } catch (const std::exception&) {
+        return HL_E_FAILED;
+    } catch (...) {
+        return HL_E_FAILED;
+    }
+}
+
+hl_error_t hl_chevron_texture(hl_ctx* c, uint32_t dir, hl_color_t col, uint32_t px, hl_texture** out) {
+    try {
+        auto* ctx = reinterpret_cast<CCabiCtx*>(c);
+        if (!ctx)
+            return HL_E_ARG;
+        if (!cabiThreadOk(ctx))
+            return HL_E_THREAD;
+        if (ctx->m_shutdown || !out || px <= 4)
+            return HL_E_ARG;
+
+        // A stroked chevron, not a font glyph: Pixel's expand_more/less is
+        // two 45° strokes with round caps (the glyph weight is the font's)
+        const CHyprColor C{col.r, col.g, col.b, col.a};
+        const double S = px / 24.0; // Material's 24dp canvas
+        auto* SURF = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, (int)px, (int)px);
+        if (!SURF)
+            return HL_E_FAILED;
+        auto* CR = cairo_create(SURF);
+        cairo_set_source_rgba(CR, C.r, C.g, C.b, C.a);
+        cairo_set_line_width(CR, 2.0 * S);
+        cairo_set_line_cap(CR, CAIRO_LINE_CAP_ROUND);
+        cairo_set_line_join(CR, CAIRO_LINE_JOIN_ROUND);
+        if (dir > 0) { // up
+            cairo_move_to(CR, 6.0 * S, 14.0 * S);
+            cairo_line_to(CR, 12.0 * S, 8.0 * S);
+            cairo_line_to(CR, 18.0 * S, 14.0 * S);
+        } else { // down
+            cairo_move_to(CR, 6.0 * S, 10.0 * S);
+            cairo_line_to(CR, 12.0 * S, 16.0 * S);
+            cairo_line_to(CR, 18.0 * S, 10.0 * S);
+        }
+        cairo_stroke(CR);
+        cairo_surface_flush(SURF);
+
+        auto tex = g_pHyprRenderer->createTexture(SURF);
+        cairo_destroy(CR);
+        cairo_surface_destroy(SURF);
+        if (!tex)
+            return HL_E_FAILED;
+        *out = new hl_texture(std::move(tex));
+        return HL_E_OK;
+    } catch (const std::exception&) {
+        return HL_E_FAILED;
+    } catch (...) {
+        return HL_E_FAILED;
+    }
+}
