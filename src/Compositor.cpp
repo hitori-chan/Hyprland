@@ -33,6 +33,7 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <signal.h>
 #include "ipc/s1/S1.hpp"
 #include "debug/crash/CrashReporter.hpp"
 #include "render/GLRenderer.hpp"
@@ -217,6 +218,30 @@ CCompositor::CCompositor(bool onlyConfig) : m_onlyConfigVerification(onlyConfig)
     else if (!std::filesystem::is_directory(m_hyprTempDataRoot)) {
         std::println("Bailing out, {} is not a directory", m_hyprTempDataRoot);
         throw std::runtime_error("CCompositor() failed");
+    }
+
+    // instance dirs are only removed on a clean shutdown; a killed or
+    // crashed session leaks its dir (log, lock, crash reports) forever.
+    // reap the ones whose lock PID is gone before creating our own.
+    for (const auto& entry : std::filesystem::directory_iterator(m_hyprTempDataRoot)) {
+        if (!entry.is_directory())
+            continue;
+
+        const auto lock = entry.path() / "hyprland.lock";
+        if (!std::filesystem::exists(lock)) {
+            std::error_code ec;
+            std::filesystem::remove_all(entry.path(), ec);
+            continue;
+        }
+
+        std::ifstream ifs(lock);
+        long         pid = 0;
+        ifs >> pid;
+        if (pid > 0 && kill(pid, 0) == 0) // alive (or owned by someone else): leave it
+            continue;
+
+        std::error_code ec;
+        std::filesystem::remove_all(entry.path(), ec);
     }
 
     m_instancePath = std::format("{}/{}", m_hyprTempDataRoot, m_instanceSignature);
