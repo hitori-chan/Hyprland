@@ -409,7 +409,10 @@ hl_error_t hl_keyboard_key(hl_ctx* c, uint32_t keycode, hl_str_t* sym, uint32_t*
         if (!KB || !KB->m_xkbState)
             return HL_E_NOT_FOUND;
 
-        const auto SYM = xkb_state_key_get_one_sym(KB->m_xkbState, keycode);
+        // the ABI carries the raw wl/evdev keycode (SKeyEvent::keycode);
+        // xkb counts from 8
+        const auto KC = xkb_keycode_t(keycode + 8);
+        const auto SYM = xkb_state_key_get_one_sym(KB->m_xkbState, KC);
         if (sym) {
             char N[64] = {};
             xkb_keysym_get_name(SYM, N, sizeof N);
@@ -422,7 +425,7 @@ hl_error_t hl_keyboard_key(hl_ctx* c, uint32_t keycode, hl_str_t* sym, uint32_t*
         if (logo)
             *logo = xkb_state_mod_name_is_active(KB->m_xkbState, XKB_MOD_NAME_LOGO, XKB_STATE_MODS_EFFECTIVE) > 0;
         char buf[8]{};
-        const int N = xkb_state_key_get_utf8(KB->m_xkbState, keycode, buf, sizeof buf);
+        const int N = xkb_state_key_get_utf8(KB->m_xkbState, KC, buf, sizeof buf);
         if (N > 0)
             std::strncpy(utf8, buf, utf8_cap - 1);
         return HL_E_OK;

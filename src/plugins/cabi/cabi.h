@@ -298,7 +298,9 @@ void hl_cursor_override(hl_ctx* ctx, const char* shape, uint32_t on);
 
 /* ---- focused keyboard (the inline-reply field) ------------------------- */
 /*
- * The seat keyboard's state for one key (the active layout).
+ * The seat keyboard's state for one key (the active layout). `keycode`
+ * is the RAW wl/evdev code the key event carries (SKeyEvent::keycode);
+ * the fork adds the xkb offset itself.
  *  - `sym`: the keysym NAME (xkbcommon-names, e.g. "a", "Return",
  *    "shift_l") — "Unknown" when the key maps to none
  *  - `ctrl`/`alt`/`logo`: the EFFECTIVE modifiers (layout-aware)
