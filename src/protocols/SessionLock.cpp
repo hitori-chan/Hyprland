@@ -47,7 +47,14 @@ CSessionLockSurface::CSessionLockSurface(SP<CExtSessionLockSurfaceV1> resource_,
     });
 
     m_listeners.surfaceDestroy = m_surface->m_events.destroy.listen([this] {
-        LOG(Log::WARN, "SessionLockSurface object remains but surface is being destroyed???");
+        // The client destroyed the wl_surface but keeps the
+        // ext_session_lock_surface resource alive (the protocol expects the
+        // explicit destroy request). The wrapper outlives the surface by
+        // design: it must stay alive until the client releases the resource
+        // (or disconnects), or the wl object would dangle. The surface itself
+        // is dead — unmap, drop focus, and hold on in a zombie state; the
+        // manager removes its entry when the ext resource is destroyed.
+        LOG(Log::WARN, "SessionLockSurface wl_surface destroyed while the ext resource is still alive; holding the lock surface inert until the client releases it");
         m_surface->unmap();
         m_listeners.surfaceCommit.reset();
         m_listeners.surfaceDestroy.reset();
