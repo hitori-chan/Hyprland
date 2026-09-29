@@ -5,7 +5,6 @@
 #include "../helpers/MiscFunctions.hpp"
 #include <sys/mman.h>
 #include <xf86drm.h>
-#include <xf86drmMode.h>
 #include <fcntl.h>
 #include <sys/stat.h>
 #include "core/Compositor.hpp"
@@ -305,23 +304,6 @@ bool CLinuxDMABUFParamsResource::verify() {
             continue;
         }
     }
-
-    // spec: consecutive adds 0..N-1, every plane the format requires
-    // exactly once — so the added count must equal the format's plane
-    // count. A mismatch is a protocol error, not a soft "failed": it must
-    // never reach the importer (2026-09-29: mesa sent a 2-plane AR24
-    // buffer right after a dmabuf-feedback change; the import died in
-    // eglCreateImageKHR with EGL_BAD_ATTRIBUTE "too many plane
-    // attributes" and the client process crashed).
-    struct drmModeFormat* fmtInfo = nullptr;
-    if (drmModeGetFormat(m_attrs->format, &fmtInfo) == 0 && fmtInfo && m_attrs->planes != fmtInfo->num_planes) {
-        m_resource->error(ZWP_LINUX_BUFFER_PARAMS_V1_ERROR_INVALID_FORMAT,
-                          std::format("plane count {} does not match format {} ({} planes)", m_attrs->planes, NFormatUtils::drmFormatName(m_attrs->format), fmtInfo->num_planes));
-        free(fmtInfo);
-        return false;
-    }
-    if (fmtInfo)
-        free(fmtInfo);
 
     if UNLIKELY (m_attrs->size.x < 1 || m_attrs->size.y < 1) {
         m_resource->error(ZWP_LINUX_BUFFER_PARAMS_V1_ERROR_INVALID_DIMENSIONS, "x/y < 1");
