@@ -11,7 +11,13 @@ using namespace Monitor;
 using namespace NColorManagement;
 
 static const int          MAX_WORK_BUFFERS             = 8;
-static const int          MAX_UNUSED_SECONDS           = 5;
+// Eviction window for pooled workbuffers. Must exceed the frame cadence of
+// SLOW monitors (a headless dev output only renders on sparse damage — e.g.
+// the bar clock's minute tick): with a 5s window every such frame found the
+// pool already evicted and paid a full re-allocation (observed churn: 3 x
+// 33MB per frame on a monitor rendering once per minute). The pool is capped
+// at MAX_WORK_BUFFERS, so the VRAM cost of holding buffers longer is bounded.
+static const int          MAX_UNUSED_SECONDS           = 300;
 static constexpr uint64_t MAX_SIZED_WORK_BUFFER_PIXELS = 64ULL * 1024ULL * 1024ULL;
 
 CMonitorResources::CMonitorResources(WP<CMonitor> monitor, DRMFormat format, Vector2D size, NColorManagement::PImageDescription imageDescription) :
