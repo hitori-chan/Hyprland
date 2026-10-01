@@ -818,12 +818,19 @@ void CWindow::onUrgencyRequest() {
 }
 
 void CWindow::activate(bool force) {
+    // An ask on an ALREADY-FOCUSED window is still an ask: the focus came
+    // from the map (FOCUS_REASON_NEW_WINDOW), not from the user, and the
+    // ask is the only observable mark of a self-activation (the tray-return
+    // burst: re-map takes the new-window focus, the activation lands
+    // moments later). Plugins key their retraction on the resulting
+    // window.urgent; without this it would never fire for the focused
+    // window, and the self-activation would keep the stolen focus.
+    onUrgencyRequest();
+
     if (Desktop::focusState()->window() == m_self)
         return;
 
     static auto PFOCUSONACTIVATE = CConfigValue<Config::INTEGER>("misc:focus_on_activate");
-
-    onUrgencyRequest();
 
     if (!force && (!m_ruleApplicator->focusOnActivate().valueOr(*PFOCUSONACTIVATE) || m_requestSuppression.activateFocusOnly || m_requestSuppression.activate))
         return;
