@@ -1784,7 +1784,8 @@ void CWindow::commitWindow(bool initialCommit) {
             && !m_backend->parent()                                            // no parents
             && !suggestsFloat(true);                                           // should not be floated
 
-        const Vector2D predSize = TILED ? g_layoutManager->predictSizeForNewTiledTarget().value_or(Vector2D{}) : Vector2D{};
+        // non-const: the predictSize listeners may fill it
+        Vector2D predSize = TILED ? g_layoutManager->predictSizeForNewTiledTarget().value_or(Vector2D{}) : Vector2D{};
 
         // a floating window's initial configure otherwise carries 0x0 ("you
         // decide"): let a listener suggest the size the window is born at.
