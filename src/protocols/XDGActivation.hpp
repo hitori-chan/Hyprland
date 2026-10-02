@@ -1,5 +1,6 @@
 #pragma once
 
+#include <chrono>
 #include <vector>
 #include <cstdint>
 #include <string>
@@ -9,11 +10,12 @@
 
 class CHyprlandActivationToken {
   public:
-    CHyprlandActivationToken(wl_client* client, bool canActivate);
+    CHyprlandActivationToken(wl_client* client, bool canActivate, std::chrono::steady_clock::duration lifetime = std::chrono::months{12});
     ~CHyprlandActivationToken();
 
     NON_MOVABLE(CHyprlandActivationToken);
 
+    bool               expired() const;
     bool               canActivate() const;
     const std::string& token() const;
     wl_client*         client() const;
@@ -45,6 +47,10 @@ class CXDGActivationProtocol : public IWaylandProtocol {
     CXDGActivationProtocol(const wl_interface* iface, const int& ver, const std::string& name);
 
     virtual void bindManager(wl_client* client, void* data, uint32_t ver, uint32_t id);
+
+    // a compositor-side token, honored once by activate(): an in-compositor
+    // requester hands it to a foreign client (fd.o ActivationToken)
+    std::string mintToken();
 
   private:
     void onManagerResourceDestroy(wl_resource* res);
