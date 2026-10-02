@@ -272,6 +272,9 @@ void CDefaultFloatingAlgorithm::moveTargetInDirection(SP<ITarget> t, Math::eDire
 }
 
 void CDefaultFloatingAlgorithm::recenter(SP<ITarget> t) {
+    if (respawnIfBornFullscreen(t))
+        return;
+
     if (!m_datas.contains(t)) {
         IFloatingAlgorithm::recenter(t);
         return;
