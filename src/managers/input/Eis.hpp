@@ -58,5 +58,8 @@ class CEis {
     bool             m_stop   = false;
     eis*             m_eisCtx = nullptr;
 
+    bool             m_emulating    = false;
+    int              m_emulatingSeq = 0;
+
     wl_event_source* m_eventSource = nullptr;
 };
