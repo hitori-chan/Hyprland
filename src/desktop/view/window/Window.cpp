@@ -802,7 +802,10 @@ std::unordered_map<std::string, std::string> CWindow::getEnv() {
 }
 
 void CWindow::markUrgent() {
-    if (Desktop::focusState()->window() == m_self)
+    // never the focused window: the hint clears only on a focus change, so it
+    // would stick to the window the user returns to; an urgent one is not
+    // announced again
+    if (Desktop::focusState()->window() == m_self || (m_hints & WINDOW_HINT_URGENT))
         return;
 
     m_hints |= WINDOW_HINT_URGENT;
@@ -812,15 +815,26 @@ void CWindow::markUrgent() {
 }
 
 void CWindow::activate(bool force) {
-    if (Desktop::focusState()->window() == m_self)
-        return;
-
+    // AwesomeWM's permissions.activate: focus a visible window, mark any
+    // other urgent (a shell that hides windows restores one from the mark)
     static auto PFOCUSONACTIVATE = CConfigValue<Config::INTEGER>("misc:focus_on_activate");
 
-    markUrgent();
+    const bool  VISIBLE = !m_hidden && m_workspace && m_workspace->visible();
+    const bool  FOCUSED = Desktop::focusState()->window() == m_self;
 
-    if (!force && (!m_ruleApplicator->focusOnActivate().valueOr(*PFOCUSONACTIVATE) || m_requestSuppression.activateFocusOnly || m_requestSuppression.activate))
+    // A focused, visible window is being looked at: its ask is a no-op.
+    if (VISIBLE && FOCUSED)
         return;
+
+    // a forced activation is a user's pick from a window switcher or a
+    // taskbar (wlr-foreign-toplevel): it focuses wherever the window is
+    const bool GATED =
+        !force && (!VISIBLE || !m_ruleApplicator->focusOnActivate().valueOr(*PFOCUSONACTIVATE) || m_requestSuppression.activateFocusOnly || m_requestSuppression.activate);
+
+    if (GATED) {
+        markUrgent(); // never the focused one (awesome's permissions.urgent skips client.focus)
+        return;
+    }
 
     if (!m_isMapped) {
         LOG(Log::DEBUG, "Ignoring CWindow::activate focus/warp, window is not mapped yet.");
@@ -830,7 +844,9 @@ void CWindow::activate(bool force) {
     if (m_target->floating())
         Desktop::windowState()->raise(m_self.lock());
 
-    Desktop::focusState()->fullWindowFocus(m_self.lock(), FOCUS_REASON_DESKTOP_STATE_CHANGE);
+    // a switch to this window, not a fallback onto it: a shell that hides
+    // windows (minimize) restores one on a switch and bounces a fallback
+    Desktop::focusState()->fullWindowFocus(m_self.lock(), FOCUS_REASON_SWITCH_TO_WINDOW_HARD);
     warpCursor();
 }
 
@@ -1888,7 +1904,11 @@ void CWindow::onActivationRequest() {
     if (m_self.lock() == Desktop::focusState()->window() || m_requestSuppression.activate)
         return;
 
-    activate();
+    // X11 cannot authenticate a user gesture: Wine/Proton send
+    // _NET_ACTIVE_WINDOW (and DEMANDS_ATTENTION) on every internal
+    // SetForegroundWindow. Urgency only, never focus; explicit activation is
+    // xdg-activation (token-validated) or a compositor dispatch.
+    markUrgent();
 }
 
 void CWindow::onMoveRequest() {
