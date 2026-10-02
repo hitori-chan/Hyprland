@@ -175,6 +175,7 @@ namespace Event {
                 Event<PHLMONITOR> focused;
 
                 Event<>           layoutChanged;
+                Event<PHLMONITOR> reservedChanged; // combined usable area changed
             } monitor;
 
             struct {

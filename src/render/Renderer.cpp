@@ -2774,6 +2774,8 @@ void IHyprRenderer::arrangeLayersForMonitor(const MONITORID& monitor) {
     damageMonitor(PMONITOR);
 
     g_layoutManager->invalidateMonitorGeometries(PMONITOR);
+
+    PMONITOR->emitReservedChangedIfNeeded();
 }
 
 void IHyprRenderer::damageSurface(SP<CWLSurfaceResource> pSurface, double x, double y, double scale) {
