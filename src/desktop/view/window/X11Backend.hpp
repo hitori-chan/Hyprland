@@ -45,6 +45,9 @@ namespace Desktop::View {
         void                   close() override;
         void                   ping() override;
 
+        // Public (private upstream): plugin ABI surface, see WaylandBackend.
+        WP<CXWaylandSurface>    m_xwaylandSurface;
+
       private:
         void                    attach(PHLWINDOWREF window) override;
         PHLMONITOR              preferredMonitor(PHLMONITOR monitor) const;
@@ -53,7 +56,6 @@ namespace Desktop::View {
         void                    updateTraits(bool emitEvent);
         void                    updateSurface(bool emitEvent);
 
-        WP<CXWaylandSurface>    m_xwaylandSurface;
         WP<CWLSurfaceResource>  m_surface;
         PHLWINDOWREF            m_window;
 

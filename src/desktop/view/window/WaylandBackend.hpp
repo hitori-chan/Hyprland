@@ -43,6 +43,11 @@ namespace Desktop::View {
         void                   close() override;
         void                   ping() override;
 
+        // Public (private upstream): plugin ABI surface. The ABI-locked
+        // hyprland-plugins suite reads the client-facing xdg resource through
+        // this; weak ref, safe to lock and discard.
+        WP<CXDGSurfaceResource>    m_resource;
+
       private:
         void                       attach(PHLWINDOWREF window) override;
         void                       updateGeometry(bool emitEvent);
@@ -51,7 +56,6 @@ namespace Desktop::View {
         void                       updateTraits(bool emitEvent);
         void                       onAck(uint32_t serial);
 
-        WP<CXDGSurfaceResource>    m_resource;
         WP<CWLSurfaceResource>     m_surface;
         PHLWINDOWREF               m_window;
 

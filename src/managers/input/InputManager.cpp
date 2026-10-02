@@ -737,6 +737,85 @@ void CInputManager::mouseMoveUnified(uint32_t time, bool refocus, bool mouse, st
     }
 }
 
+bool CInputManager::pointerHitIsNativeSurface() {
+    const auto POS = getMouseCoordsInternal();
+
+    // This is called from compositor-owned pointer motion listeners. Mirror
+    // the nearest-monitor query without constructing a query object on that
+    // hot path.
+    PHLMONITOR PMONITOR;
+    if (!State::monitorState())
+        return false;
+
+    float bestDist = 0.F;
+    for (const auto& MON : State::monitorState()->monitors()) {
+        const auto BOX = MON->logicalBox();
+        if (BOX.containsPoint(POS)) {
+            PMONITOR = MON;
+            break;
+        }
+
+        const float DIST = vecToRectDistanceSquared(POS, BOX.pos(), BOX.pos() + BOX.size());
+        if (!PMONITOR || DIST < bestDist) {
+            PMONITOR = MON;
+            bestDist = DIST;
+        }
+    }
+    if (!PMONITOR)
+        return false;
+
+    Vector2D   surfaceCoords;
+
+    const auto PWORKSPACE = PMONITOR->m_activeSpecialWorkspace ? PMONITOR->m_activeSpecialWorkspace : PMONITOR->m_activeWorkspace;
+    const bool HAS_EXCLUSIVE_FULLSCREEN =
+        (Fullscreen::controller()->hasFullscreen(PWORKSPACE) && Fullscreen::controller()->getFullscreenModes(PWORKSPACE).internal == Fullscreen::FSMODE_FULLSCREEN) ||
+        (Fullscreen::controller()->hasFullscreen(PMONITOR) && Fullscreen::controller()->getFullscreenModes(PMONITOR).internal == Fullscreen::FSMODE_FULLSCREEN);
+
+    const auto layerOwnsPointer = [HAS_EXCLUSIVE_FULLSCREEN](PHLLS layerSurface) {
+        if (!layerSurface)
+            return false;
+
+        // Match the fullscreen filter in mouseMoveUnified(): a top layer
+        // without aboveFullscreen is below an exclusive fullscreen client,
+        // while overlay layers and explicitly-above top layers remain native
+        // pointer owners.
+        return !HAS_EXCLUSIVE_FULLSCREEN || layerSurface->m_layer > ZWLR_LAYER_SHELL_V1_LAYER_TOP ||
+            (layerSurface->m_layer == ZWLR_LAYER_SHELL_V1_LAYER_TOP && (layerSurface->m_flags & Desktop::View::LAYER_FLAG_ABOVE_FULLSCREEN));
+    };
+
+    // IME popups are above desktop components and must beat compositor-drawn
+    // plugin surfaces even when pointer focus is stale.
+    if (m_relay.popupFromCoords(POS))
+        return true;
+
+    // Permission and other focus-priority windows are checked before layers
+    // by mouseMoveUnified(). Preserve that native precedence when a plugin
+    // cancelled the motion emission before the compositor could refocus.
+    if (const auto PRIORITY = Desktop::viewState()->hitTest().windowAt(POS, Desktop::View::FOCUS_PRIORITY);
+        PRIORITY && Desktop::viewState()->hitTest().windowSurfaceAt(POS, PRIORITY, surfaceCoords))
+        return true;
+
+    PHLWINDOW forcedFocus = m_forcedFocus.lock();
+    if (!forcedFocus)
+        forcedFocus = Desktop::viewState()->query().forceFocus().runWindow();
+    if (forcedFocus)
+        return true;
+
+    PHLLS layer;
+
+    // Keep this order identical to mouseMoveUnified(): layer popup, overlay,
+    // then top. The method is read-only and emits no focus events.
+    if (Desktop::viewState()->hitTest().layerPopupSurfaceAt(POS, PMONITOR, &surfaceCoords, &layer))
+        return layerOwnsPointer(layer);
+    if (Desktop::viewState()->hitTest().layerSurfaceAt(POS, &PMONITOR->m_layerSurfaceLayers[ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY], &surfaceCoords, &layer))
+        return layerOwnsPointer(layer);
+    return Desktop::viewState()->hitTest().layerSurfaceAt(POS, &PMONITOR->m_layerSurfaceLayers[ZWLR_LAYER_SHELL_V1_LAYER_TOP], &surfaceCoords, &layer) && layerOwnsPointer(layer);
+}
+
+bool CInputManager::inputCaptureActive() {
+    return PROTO::inputCapture && PROTO::inputCapture->isCaptured();
+}
+
 void CInputManager::onMouseButton(IPointer::SButtonEvent e, SP<IPointer> mouse) {
     Event::SCallbackInfo info;
     Event::bus()->m_events.input.mouse.button.emit(e, info);

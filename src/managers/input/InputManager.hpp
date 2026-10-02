@@ -134,6 +134,8 @@ class CInputManager {
     bool               isConstrained();
     bool               isLocked();
     bool               hasHeldButtons();
+    bool               pointerHitIsNativeSurface();
+    bool               inputCaptureActive();
 
     bool               anyHidHasCap(eHIDCapabilityType type);
 
