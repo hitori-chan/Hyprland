@@ -55,6 +55,11 @@ class CEis {
     void             clearPointer();
     void             clearKeyboard();
 
+    // libeis emulation is per device: a device recreated while a capture
+    // is active (resetKeyboard on a keymap change) starts unemulated and
+    // drops every event until it is re-armed with the live sequence
+    bool             m_emulating = false;
+    int              m_emulatingSeq = 0;
     bool             m_stop   = false;
     eis*             m_eisCtx = nullptr;
 
