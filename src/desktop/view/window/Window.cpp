@@ -817,6 +817,10 @@ void CWindow::onUrgencyRequest() {
     Event::bus()->m_events.window.urgent.emit(m_self.lock());
 }
 
+void CWindow::clearUrgency() {
+    m_hints &= ~WINDOW_HINT_URGENT;
+}
+
 void CWindow::activate(bool force) {
     // An ask on an ALREADY-FOCUSED window is still an ask: the focus came
     // from the map (FOCUS_REASON_NEW_WINDOW), not from the user, and the
