@@ -817,27 +817,28 @@ void CWindow::onUrgencyRequest() {
     Event::bus()->m_events.window.urgent.emit(m_self.lock());
 }
 
-void CWindow::clearUrgency() {
-    m_hints &= ~WINDOW_HINT_URGENT;
-}
-
 void CWindow::activate(bool force) {
-    // An ask on an ALREADY-FOCUSED window is still an ask: the focus came
-    // from the map (FOCUS_REASON_NEW_WINDOW), not from the user, and the
-    // ask is the only observable mark of a self-activation (the tray-return
-    // burst: re-map takes the new-window focus, the activation lands
-    // moments later). Plugins key their retraction on the resulting
-    // window.urgent; without this it would never fire for the focused
-    // window, and the self-activation would keep the stolen focus.
-    onUrgencyRequest();
-
-    if (Desktop::focusState()->window() == m_self)
-        return;
-
+    // An activation ask is the app's "present me" — awesome's
+    // _NET_ACTIVE_WINDOW handling (permissions.activate): focus the
+    // client when it is VISIBLE, otherwise mark it urgent — never focus
+    // it and never switch workspaces for it. A hidden (plugin-
+    // minimized) window is not renderable: it gets the same urgency
+    // mark, and the plugin's urgent listener performs awesome's
+    // "c.minimized = false + focus" from that event. With
+    // focus_on_activate off (Hyprland's anti-steal mode) even a visible
+    // ask is demoted to the mark.
     static auto PFOCUSONACTIVATE = CConfigValue<Config::INTEGER>("misc:focus_on_activate");
 
-    if (!force && (!m_ruleApplicator->focusOnActivate().valueOr(*PFOCUSONACTIVATE) || m_requestSuppression.activateFocusOnly || m_requestSuppression.activate))
+    const bool GATED   = !force && (!m_ruleApplicator->focusOnActivate().valueOr(*PFOCUSONACTIVATE) || m_requestSuppression.activateFocusOnly || m_requestSuppression.activate);
+    const bool VISIBLE = !m_hidden && m_workspace && m_workspace->visible();
+
+    if (!VISIBLE || GATED) {
+        onUrgencyRequest();
         return;
+    }
+
+    if (Desktop::focusState()->window() == m_self)
+        return; // re-focus: nothing to do; the focused client is never marked urgent (permissions.urgent)
 
     if (!m_isMapped) {
         LOG(Log::DEBUG, "Ignoring CWindow::activate focus/warp, window is not mapped yet.");

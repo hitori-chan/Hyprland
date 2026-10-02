@@ -266,17 +266,6 @@ namespace Desktop::View {
 
         std::unordered_map<std::string, std::string> getEnv();
 
-        // Symmetric to onUrgencyRequest: clears the urgency hint without
-        // emitting. The hint is also cleared whenever the window takes
-        // focus (FocusState); this is for the ask that lands AFTER the
-        // focus — a user-caused burst (a clicked notification, a tray
-        // click, a link spawn) re-activates a window the user's own
-        // gesture just brought forward, and the mark of attention the app
-        // posted with its ask is the user's own doing: the plugin that saw
-        // the gesture clears it (awesome clears urgency the moment the
-        // client is focused and visible).
-        void clearUrgency();
-
         //
         PHLWINDOWREF m_self;
 
