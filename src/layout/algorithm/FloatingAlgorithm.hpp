@@ -10,6 +10,8 @@ namespace Layout {
     class ITarget;
     class CAlgorithm;
 
+    constexpr Vector2D FLOATING_DEFAULT_SIZE = {640, 400};
+
     class IFloatingAlgorithm : public IModeAlgorithm {
       public:
         virtual ~IFloatingAlgorithm() = default;
@@ -21,6 +23,7 @@ namespace Layout {
         virtual void setTargetGeom(const CBox& geom, SP<ITarget> target) = 0;
 
         virtual void recenter(SP<ITarget> t);
+        bool respawnIfBornFullscreen(SP<ITarget> t);
 
         virtual void recalculate(eRecalculateReason reason = RECALCULATE_REASON_UNKNOWN);
 
