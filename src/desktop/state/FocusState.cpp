@@ -173,11 +173,25 @@ void CFocusState::rawWindowFocus(PHLWINDOW pWindow, eFocusReason reason, SP<CWLS
         // This is to fix incorrect feedback on the focus history.
         PWORKSPACE->rememberFocusedWindow(pWindow);
         if (PWORKSPACE->type() == Workspace::eWorkspaceType::SPECIAL)
-            m_focusMonitor->changeWorkspace(PWORKSPACE, false, true); // if special ws, open on current monitor
+            m_focusMonitor->changeWorkspace(PWORKSPACE, false, true, true); // if special ws, open on current monitor
         else if (PMONITOR)
-            PMONITOR->changeWorkspace(PWORKSPACE, false, true);
-        // changeworkspace already calls focusWindow
-        return;
+            PMONITOR->changeWorkspace(PWORKSPACE, false, true, true);
+        if (!pWindow->m_workspace || !pWindow->m_workspace->visible())
+            return; // the switch did not land: leave focus where it is
+        // the switch ran with noFocus: the caller asked for THIS window, and
+        // the workspace's remembered window may be a different one (the
+        // urgent/jumpto case) — fall through and focus the exact target.
+        // noFocus also silenced the switch's announcement, which the
+        // workspace history (`workspace previous`) and IPC bars need
+        if (PWORKSPACE->type() != Workspace::eWorkspaceType::SPECIAL) {
+            IPC::Socket2::sock()->postEvent({"workspace", PWORKSPACE->addressableName()});
+            IPC::Socket2::sock()->postEvent({"workspacev2", std::format("{},{}", PWORKSPACE->addressableName(), PWORKSPACE->displayName())});
+            Event::bus()->m_events.workspace.active.emit(PWORKSPACE);
+        }
+        // a special workspace's own switch focuses its remembered window,
+        // which is this one, even with noFocus: done
+        if (m_focusWindow.lock() == pWindow && g_pSeatManager->m_state.keyboardFocus == (surface ? surface : pWindow->wlSurface()->resource()))
+            return;
     }
 
     if (PMONITOR && !(pWindow->m_state & Desktop::View::WINDOW_STATE_PINNED))
