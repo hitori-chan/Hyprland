@@ -165,18 +165,35 @@ void CFocusState::rawWindowFocus(PHLWINDOW pWindow, eFocusReason reason, SP<CWLS
     if (pWindow->m_state & Desktop::View::WINDOW_STATE_PINNED)
         pWindow->m_workspace = m_focusMonitor->m_activeWorkspace;
 
-    const auto PMONITOR = pWindow->m_monitor.lock();
+    auto         PMONITOR = pWindow->m_monitor.lock();
+    PHLWORKSPACE announce; // a switch this focus made, announced once the window has focus
 
     if (!pWindow->m_workspace || !pWindow->m_workspace->visible()) {
         const auto PWORKSPACE = pWindow->m_workspace;
         // This is to fix incorrect feedback on the focus history.
         PWORKSPACE->rememberFocusedWindow(pWindow);
         if (PWORKSPACE->type() == Workspace::eWorkspaceType::SPECIAL)
-            m_focusMonitor->changeWorkspace(PWORKSPACE, false, true); // if special ws, open on current monitor
+            m_focusMonitor->changeWorkspace(PWORKSPACE, false, true, true); // if special ws, open on current monitor
         else if (PMONITOR)
-            PMONITOR->changeWorkspace(PWORKSPACE, false, true);
-        // changeworkspace already calls focusWindow
-        return;
+            PMONITOR->changeWorkspace(PWORKSPACE, false, true, true);
+        if (!pWindow->m_workspace || !pWindow->m_workspace->visible())
+            return; // the switch did not land: leave focus where it is
+        // the switch ran with noFocus: its own focus would carry its reason,
+        // not the caller's, drop the surface, and skip a monitor showing a
+        // special workspace or a pinned focus — fall through and focus the
+        // target as asked.
+        // noFocus also silenced the switch's announcement, which the
+        // workspace history (`workspace previous`) and IPC bars need: it
+        // follows the focus below, in changeWorkspace's own order
+        if (PWORKSPACE->type() != Workspace::eWorkspaceType::SPECIAL)
+            announce = PWORKSPACE;
+        // a special workspace's own switch focuses its remembered window,
+        // which is this one, even with noFocus: done
+        if (m_focusWindow.lock() == pWindow && g_pSeatManager->m_state.keyboardFocus == (surface ? surface : pWindow->wlSurface()->resource()))
+            return;
+        // a special workspace opens on the focused monitor and takes the
+        // window along
+        PMONITOR = pWindow->m_monitor.lock();
     }
 
     if (PMONITOR && !(pWindow->m_state & Desktop::View::WINDOW_STATE_PINNED))
@@ -218,6 +235,12 @@ void CFocusState::rawWindowFocus(PHLWINDOW pWindow, eFocusReason reason, SP<CWLS
     IPC::Socket2::sock()->postEvent({.event = "activewindowv2", .data = std::format("{:x}", rc<uintptr_t>(pWindow.get()))});
 
     Event::bus()->m_events.window.active.emit(pWindow, reason);
+
+    if (announce) {
+        IPC::Socket2::sock()->postEvent({"workspace", announce->addressableName()});
+        IPC::Socket2::sock()->postEvent({"workspacev2", std::format("{},{}", announce->addressableName(), announce->displayName())});
+        Event::bus()->m_events.workspace.active.emit(announce);
+    }
 
     g_pInputManager->recheckIdleInhibitorStatus();
 
