@@ -8,13 +8,17 @@
 static constexpr const size_t MAX_TOKENS_IN_CACHE   = 1024;
 static constexpr const size_t MAX_TOKENS_PER_CLIENT = 16;
 
-CHyprlandActivationToken::CHyprlandActivationToken(wl_client* client, bool canActivate) :
-    m_token(g_pTokenManager->registerNewToken({}, std::chrono::months{12})), m_canActivate(canActivate), m_client(client) {
+CHyprlandActivationToken::CHyprlandActivationToken(wl_client* client, bool canActivate, std::chrono::steady_clock::duration lifetime) :
+    m_token(g_pTokenManager->registerNewToken({}, lifetime)), m_canActivate(canActivate), m_client(client) {
     ;
 }
 
 CHyprlandActivationToken::~CHyprlandActivationToken() {
     g_pTokenManager->removeToken(g_pTokenManager->getToken(m_token));
+}
+
+bool CHyprlandActivationToken::expired() const {
+    return !g_pTokenManager->getToken(m_token);
 }
 
 bool CHyprlandActivationToken::canActivate() const {
@@ -93,6 +97,13 @@ void CXDGActivationProtocol::bindManager(wl_client* client, void* data, uint32_t
             return;
         }
 
+        // a minted token lives minutes (mintToken): an expired one is not redeemable
+        if UNLIKELY ((*TOKEN)->expired()) {
+            LOG(Log::WARN, "activate event for expired token {}, ignoring", token);
+            m_sentTokens.erase(TOKEN);
+            return;
+        }
+
         const bool CAN_ACTIVATE = (*TOKEN)->canActivate();
 
         // remove token. It's been now spent.
@@ -131,6 +142,18 @@ void CXDGActivationProtocol::cleanupTokens() {
 
     if (m_sentTokens.size() > MAX_TOKENS_IN_CACHE)
         m_sentTokens.erase(m_sentTokens.begin(), m_sentTokens.begin() + (m_sentTokens.size() - MAX_TOKENS_IN_CACHE));
+}
+
+std::string CXDGActivationProtocol::mintToken() {
+    // minutes, not a client token's months: it is spent by the very next
+    // activate (a notification click), and no client's death reaps it; at
+    // most MAX_TOKENS_PER_CLIENT live, as for a client
+    const std::string TOKEN = m_sentTokens.emplace_back(makeUnique<CHyprlandActivationToken>(nullptr, true, std::chrono::minutes{2}))->token();
+
+    LOG(Log::DEBUG, "minted compositor-side xdg-activation token {}", TOKEN);
+
+    cleanupTokens();
+    return TOKEN;
 }
 
 void CXDGActivationProtocol::onManagerResourceDestroy(wl_resource* res) {
