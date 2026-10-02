@@ -498,8 +498,15 @@ void CMonitor::onDisconnect(bool destroy) {
     State::Workspace::monitorDisconnected(m_self.lock());
 
     if (BACKUPMON) {
-        // snap cursor
-        Pointer::pointerController()->warpTo(BACKUPMON->m_position + BACKUPMON->m_transformedSize / 2.F, true);
+        // snap the cursor ONLY when it was on the removed monitor (it would
+        // otherwise be left off-screen). A cursor sitting on another monitor
+        // must not be yanked: off-screen dev-output removals (the gate's
+        // nested-dev teardown) used to teleport the user's live cursor to the
+        // panel center on every run (2026-10-02, user rule: the gate never
+        // takes the mouse)
+        const auto CURSORPOS = Pointer::mgr()->untransformedPosition();
+        if (CBox{m_position, m_transformedSize}.containsPoint(CURSORPOS))
+            Pointer::pointerController()->warpTo(BACKUPMON->m_position + BACKUPMON->m_transformedSize / 2.F, true);
     } else {
         Desktop::focusState()->surface().reset();
         Desktop::focusState()->window().reset();
