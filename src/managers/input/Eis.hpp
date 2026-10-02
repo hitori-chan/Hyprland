@@ -55,6 +55,14 @@ class CEis {
     void             clearPointer();
     void             clearKeyboard();
 
+    // The libeis emulation state gates which devices actually deliver to the
+    // receiver, and it is per device: a device recreated after activate
+    // (resetKeyboard on a keymap churn) starts unemulated, and every send
+    // into it is dropped until emulation is re-armed with the live
+    // activation sequence (2026-10-03: input-capture keys silently died
+    // after the first keymap-driven keyboard reset).
+    bool             m_emulating = false;
+    int              m_emulatingSeq = 0;
     bool             m_stop   = false;
     eis*             m_eisCtx = nullptr;
 

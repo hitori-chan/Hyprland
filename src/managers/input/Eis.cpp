@@ -179,6 +179,8 @@ void CEis::ensurePointer() {
 
     eis_device_add(pointer);
     eis_device_resume(pointer);
+    if (m_emulating)
+        eis_device_start_emulating(pointer, m_emulatingSeq);
 
     m_client.m_pointer = pointer;
 }
@@ -191,6 +193,8 @@ void CEis::ensureKeyboard() {
 
     LOG(Log::INFO, "[EIS] Creating keyboard");
     eis_device* keyboard = eis_seat_new_device(m_client.m_seat);
+    if (!keyboard)
+        return;
     eis_device_configure_name(keyboard, "captured keyboard");
     eis_device_configure_capability(keyboard, EIS_DEVICE_CAP_KEYBOARD);
 
@@ -208,6 +212,9 @@ void CEis::ensureKeyboard() {
 
     eis_device_add(keyboard);
     eis_device_resume(keyboard);
+    if (m_emulating) {
+        eis_device_start_emulating(keyboard, m_emulatingSeq);
+    }
 
     m_client.m_keyboard = keyboard;
 }
@@ -256,6 +263,9 @@ int CEis::getFileDescriptor() {
 void CEis::startEmulating(int sequence) {
     LOG(Log::INFO, "[EIS] Start Emulating");
 
+    m_emulating    = true;
+    m_emulatingSeq = sequence;
+
     if (m_client.m_pointer)
         eis_device_start_emulating(m_client.m_pointer, sequence);
 
@@ -265,6 +275,8 @@ void CEis::startEmulating(int sequence) {
 
 void CEis::stopEmulating() {
     LOG(Log::INFO, "[EIS] Stop Emulating");
+
+    m_emulating = false;
 
     if (m_client.m_pointer)
         eis_device_stop_emulating(m_client.m_pointer);
