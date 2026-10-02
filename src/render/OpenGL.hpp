@@ -179,8 +179,10 @@ namespace Render::GL {
         void renderRect(const CBox&, const CHyprColor&, SRectRenderData data);
         void renderTexture(SP<ITexture>, const CBox&, STextureRenderData data);
         void renderTextureMesh(SP<ITexture>, const CBox&, const std::vector<SMeshRenderVertex>& vertices, STextureRenderData data);
+        // the default keeps the plugin's 6-arg call (shared with the
+        // pre-21290254 fork) compiling against this header
         void renderRoundedShadow(const CBox&, int round, float roundingPower, int range, const Config::CGradientValueData& color, float a,
-                                 const SP<Workspace::CWorkspacePresentable>& presentation);
+                                 const SP<Workspace::CWorkspacePresentable>& presentation = nullptr);
         void renderRoundedShadow(const CBox&, int round, float roundingPower, int range, const Config::CGradientValueData& grad1, const Config::CGradientValueData& grad2,
                                  float lerp, float a, const SP<Workspace::CWorkspacePresentable>& presentation);
         void renderInnerGlow(const CBox&, int round, float roundingPower, int range, const Config::CGradientValueData& color, int glowPower, float a = 1.0);
