@@ -85,6 +85,7 @@ namespace Monitor {
         drmModeModeInfo             m_customDrmMode = {};
 
         Desktop::CReservedArea      m_reservedArea;
+        Desktop::CReservedArea      m_lastAnnouncedReservedArea;
 
         CMonitorState               m_state;
         CDamageRing                 m_damage;
@@ -262,6 +263,7 @@ namespace Monitor {
         // methods
         void         onConnect(bool noRule);
         void         onDisconnect(bool destroy = false);
+        void         emitReservedChangedIfNeeded();
         void         applyCMType(NCMType::eCMType cmType, NTransferFunction::eTF cmSdrEotf);
         void         addDamage(const pixman_region32_t* rg);
         void         addDamage(const CRegion& rg);
