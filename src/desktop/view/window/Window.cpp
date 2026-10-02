@@ -812,19 +812,45 @@ std::unordered_map<std::string, std::string> CWindow::getEnv() {
     return results;
 }
 
-void CWindow::activate(bool force) {
-    if (Desktop::focusState()->window() == m_self)
-        return;
-
-    static auto PFOCUSONACTIVATE = CConfigValue<Config::INTEGER>("misc:focus_on_activate");
+void CWindow::onUrgencyRequest() {
+    if (m_hints & WINDOW_HINT_URGENT)
+        return; // already urgent; the hint clears when the window is focused
 
     m_hints |= WINDOW_HINT_URGENT;
 
     IPC::Socket2::sock()->postEvent({.event = "urgent", .data = std::format("{:x}", rc<uintptr_t>(this))});
     Event::bus()->m_events.window.urgent.emit(m_self.lock());
+}
 
-    if (!force && (!m_ruleApplicator->focusOnActivate().valueOr(*PFOCUSONACTIVATE) || m_requestSuppression.activateFocusOnly || m_requestSuppression.activate))
+void CWindow::activate(bool force) {
+    // An activation ask is the app's "present me", as in AwesomeWM's
+    // permissions.activate: focus the window when it is VISIBLE, otherwise
+    // mark it urgent; never focus it elsewhere and never switch workspaces
+    // for it. A hidden window is not renderable and gets the same urgency
+    // mark (a shell that hides windows can restore one from that event).
+    // With focus_on_activate off (Hyprland's anti-steal mode) even a
+    // visible ask is demoted to the mark.
+    static auto PFOCUSONACTIVATE = CConfigValue<Config::INTEGER>("misc:focus_on_activate");
+
+    const bool VISIBLE = !m_hidden && m_workspace && m_workspace->visible();
+    const bool FOCUSED = Desktop::focusState()->window() == m_self;
+
+    // A focused, visible window is being looked at: its ask is a no-op.
+    if (VISIBLE && FOCUSED)
         return;
+
+    // a forced activation is a user's pick from a window switcher or a
+    // taskbar (wlr-foreign-toplevel): it focuses wherever the window is
+    const bool GATED = !force && (!VISIBLE || !m_ruleApplicator->focusOnActivate().valueOr(*PFOCUSONACTIVATE) || m_requestSuppression.activateFocusOnly || m_requestSuppression.activate);
+
+    if (GATED) {
+        // never the focused window (awesome's permissions.urgent skips
+        // client.focus): the hint clears only on a focus change, so it
+        // would stick to the window the user returns to
+        if (!FOCUSED)
+            onUrgencyRequest();
+        return;
+    }
 
     if (!m_isMapped) {
         LOG(Log::DEBUG, "Ignoring CWindow::activate focus/warp, window is not mapped yet.");
@@ -1854,7 +1880,11 @@ void CWindow::onActivationRequest() {
     if (m_self.lock() == Desktop::focusState()->window() || m_requestSuppression.activate)
         return;
 
-    activate();
+    // X11 cannot authenticate a user gesture: Wine/Proton send
+    // _NET_ACTIVE_WINDOW (and DEMANDS_ATTENTION) on every internal
+    // SetForegroundWindow. Urgency only, never focus; explicit activation is
+    // xdg-activation (token-validated) or a compositor dispatch.
+    onUrgencyRequest();
 }
 
 void CWindow::onMoveRequest() {
