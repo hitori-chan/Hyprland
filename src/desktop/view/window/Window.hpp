@@ -274,6 +274,7 @@ namespace Desktop::View {
         void         onConfigureRequest(const CBox& box);
         void         onGeometryChanged(const CBox& box);
         void         onActivationRequest();
+        void         onUrgencyRequest();
         void         onMoveRequest();
         void         onResizeRequest(eBackendResizeEdge edge);
         void         unmanagedSetGeometry(const CBox& box);
