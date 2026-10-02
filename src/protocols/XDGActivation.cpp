@@ -88,8 +88,21 @@ void CXDGActivationProtocol::bindManager(wl_client* client, void* data, uint32_t
             return;
         }
 
+        // a minted token lives minutes: once expired it must not stay
+        // redeemable until ten newer mints push it out
+        const bool MINTED = TOKEN->client == nullptr;
+        const auto MANAGED = MINTED ? g_pTokenManager->getToken(TOKEN->token) : nullptr;
+
         // remove token. It's been now spent.
         m_sentTokens.erase(TOKEN);
+
+        if (MINTED) {
+            if (!MANAGED) {
+                LOG(Log::WARN, "activate event for expired token {}, ignoring", token);
+                return;
+            }
+            g_pTokenManager->removeToken(MANAGED);
+        }
 
         SP<CWLSurfaceResource> surf    = CWLSurfaceResource::fromResource(surface);
         const auto             PWINDOW = Desktop::viewState()->query().type(Desktop::View::VIEW_TYPE_WINDOW).surface(surf).runWindow();
@@ -101,6 +114,32 @@ void CXDGActivationProtocol::bindManager(wl_client* client, void* data, uint32_t
 
         PWINDOW->activate();
     });
+}
+
+std::string CXDGActivationProtocol::mintToken() {
+    // minutes, not the protocol path's months: a minted token is spent by the
+    // very next activate (a notification click), and an unspent one has no
+    // owning resource whose death would reap the TokenManager entry
+    const auto TOKEN = g_pTokenManager->registerNewToken({}, std::chrono::minutes{2});
+
+    LOG(Log::DEBUG, "minted compositor-side xdg-activation token {}", TOKEN);
+
+    m_sentTokens.push_back({TOKEN, nullptr});
+
+    auto count = std::ranges::count_if(m_sentTokens, [](const auto& other) { return other.client == nullptr; });
+
+    if UNLIKELY (count > 10) {
+        // remove first token. Too many, dear compositor.
+        for (auto i = m_sentTokens.begin(); i != m_sentTokens.end(); ++i) {
+            if (i->client == nullptr) {
+                g_pTokenManager->removeToken(g_pTokenManager->getToken(i->token));
+                m_sentTokens.erase(i);
+                break;
+            }
+        }
+    }
+
+    return TOKEN;
 }
 
 void CXDGActivationProtocol::onManagerResourceDestroy(wl_resource* res) {
