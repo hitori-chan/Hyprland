@@ -181,13 +181,15 @@ CWaylandBackend::CWaylandBackend(SP<CXDGSurfaceResource> resource) : m_resource(
 
             updateTraits(true);
 
-            // This is tricky, but we essentially check if the app requested any type of maximize.
-            // If it did, we send the inverse of our internal state.
-            // This is because apps are always "maximized" under Hyprland + Wayland, check setMaximized().
+            // The client's ACTUAL maximize request, not the inverse of
+            // our internal state: with the map-time maximized lie gone,
+            // a client that is told the truth pongs its real state, and
+            // the inverse mapping would re-grant internal maximize on an
+            // unmaximize pong (the unmax silently reverts).
             const auto REQUESTED_MAXIMIZE = TOPLEVEL->m_state.requestsMaximize.has_value();
             auto       requestsMaximize   = std::optional<bool>{std::nullopt};
             if (REQUESTED_MAXIMIZE)
-                requestsMaximize = !Fullscreen::controller()->isFullscreen(m_window.lock(), Fullscreen::FSMODE_MAXIMIZED);
+                requestsMaximize = TOPLEVEL->m_state.requestsMaximize.value();
 
             m_events.stateRequest.emit({
                 .fullscreen        = TOPLEVEL->m_state.requestsFullscreen,
