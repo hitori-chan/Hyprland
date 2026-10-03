@@ -1,6 +1,8 @@
 #include "Logger.hpp"
 #include "RollingLogFollow.hpp"
 
+#include <cstdio>
+
 #include "../../event/EventBus.hpp"
 
 #include "../../config/ConfigValue.hpp"
@@ -54,7 +56,14 @@ void CLogger::recheckCfg() {
     static auto PENABLESTDOUT = CConfigValue<Config::INTEGER>("debug:enable_stdout_logs");
     static auto PENABLECOLOR  = CConfigValue<Config::INTEGER>("debug:colored_stdout_logs");
 
-    m_logger.setEnableStdout(!*PDISABLELOGS && *PENABLESTDOUT);
+    const bool STDOUTLOGS = !*PDISABLELOGS && *PENABLESTDOUT;
+    m_logger.setEnableStdout(STDOUTLOGS);
+    if (STDOUTLOGS)
+        // stdout is redirected to a file in the gate's nested (and in any
+        // `> log` invocation): stdio would FULL-buffer it, so live logs sit
+        // in an 8 KiB buffer until flush and diagnosis greps see a log that
+        // stops mid-init. Line-buffer while the stdout sink is on.
+        std::setvbuf(stdout, nullptr, _IOLBF, 0);
     m_logsEnabled = !*PDISABLELOGS;
     m_logger.setTime(!*PDISABLETIME);
     m_logger.setEnableColor(*PENABLECOLOR);
