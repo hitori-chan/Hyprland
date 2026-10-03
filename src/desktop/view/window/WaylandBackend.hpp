@@ -37,6 +37,7 @@ namespace Desktop::View {
         void                   setActive(bool active) override;
         void                   setFullscreen(bool fullscreen) override;
         void                   setMaximized(bool maximized) override;
+        std::optional<bool>    takeWantsInitialMaximize() override;
         void                   setResizing(bool resizing) override;
         bool                   setSuspended(bool suspended) override;
         void                   setMinimized(bool minimized) override;

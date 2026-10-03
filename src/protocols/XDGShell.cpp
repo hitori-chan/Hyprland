@@ -252,7 +252,16 @@ CXDGToplevelResource::CXDGToplevelResource(SP<CXdgToplevel> resource_, SP<CXDGSu
 
     m_resource->setSetMaximized([this](CXdgToplevel* r) {
         // We send maximized, apps can pong it back.
-        if (shouldIgnoreInitialMaximizeds())
+        if (shouldIgnoreInitialMaximizeds()) {
+            // the gate ignores pre-map pongs only: record for map time
+            m_wantsInitialMaximize = true;
+            return;
+        }
+
+        // A client we are telling maximized pongs the state it was told.
+        // Post-map set_maximized while told maximized is a confirm, not a
+        // toggle request — honoring it would flip the internal state.
+        if (std::ranges::find(m_pendingApply.states, XDG_TOPLEVEL_STATE_MAXIMIZED) != m_pendingApply.states.end())
             return;
 
         m_state.requestsMaximize = true;
@@ -262,8 +271,10 @@ CXDGToplevelResource::CXDGToplevelResource(SP<CXdgToplevel> resource_, SP<CXDGSu
 
     m_resource->setUnsetMaximized([this](CXdgToplevel* r) {
         // We send maximized, apps can pong it back.
-        if (shouldIgnoreInitialMaximizeds())
+        if (shouldIgnoreInitialMaximizeds()) {
+            m_wantsInitialMaximize.reset(); // pre-map intent is final
             return;
+        }
 
         m_state.requestsMaximize = false;
         m_events.stateChanged.emit();
@@ -554,10 +565,14 @@ CXDGSurfaceResource::CXDGSurfaceResource(SP<CXdgSurface> resource_, SP<CXDGWMBas
         }
 
         if (m_surface->m_current.texture && !m_mapped) {
-            // this forces apps to not draw CSD.
-            if (m_toplevel)
-                m_toplevel->setMaximized(true);
-
+            // NO CSD-suppressing maximized lie at map: it flashed the
+            // client's CSD relayout on the first frame of every CSD
+            // window and corrupted the client's own state memory (GTK
+            // saves "maximized", reopens maximized, stops tracking its
+            // normal geometry). The client keeps its own state; the
+            // plugin tells the floating windows it manages their true
+            // state. (Pre-bump fork: the backend setMaximized path was
+            // stubbed — only plugin code ever told.)
             m_mapped = true;
             m_surface->map();
             m_events.map.emit();
