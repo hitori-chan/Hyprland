@@ -252,8 +252,11 @@ CXDGToplevelResource::CXDGToplevelResource(SP<CXdgToplevel> resource_, SP<CXDGSu
 
     m_resource->setSetMaximized([this](CXdgToplevel* r) {
         // We send maximized, apps can pong it back.
-        if (shouldIgnoreInitialMaximizeds())
+        if (shouldIgnoreInitialMaximizeds()) {
+            // the gate ignores pre-map pongs only: record for map time
+            m_wantsInitialMaximize = true;
             return;
+        }
 
         m_state.requestsMaximize = true;
         m_events.stateChanged.emit();
@@ -262,8 +265,10 @@ CXDGToplevelResource::CXDGToplevelResource(SP<CXdgToplevel> resource_, SP<CXDGSu
 
     m_resource->setUnsetMaximized([this](CXdgToplevel* r) {
         // We send maximized, apps can pong it back.
-        if (shouldIgnoreInitialMaximizeds())
+        if (shouldIgnoreInitialMaximizeds()) {
+            m_wantsInitialMaximize.reset(); // pre-map intent is final
             return;
+        }
 
         m_state.requestsMaximize = false;
         m_events.stateChanged.emit();

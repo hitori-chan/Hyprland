@@ -144,6 +144,11 @@ class CXDGToplevelResource {
         std::optional<bool>      requestsMinimize;
     } m_state;
 
+    // fork: pre-map maximize request (upstream drops pre-map requests; the
+    // client can only ask before its first commit). Consumed at map via
+    // takeWantsInitialMaximize(). Not volatile.
+    std::optional<bool> m_wantsInitialMaximize;
+
     struct {
         Vector2D                      size;
         std::vector<xdgToplevelState> states;
