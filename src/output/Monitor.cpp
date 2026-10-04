@@ -1747,7 +1747,10 @@ uint32_t CMonitor::isSolitaryBlocked(bool full) {
             return reasons;
     }
 
-    if (Notification::overlay()->hasAny()) {
+    bool pluginOverlay = false;
+    Event::bus()->m_events.monitor.blockSolitary.emit(m_self.lock(), pluginOverlay);
+
+    if (Notification::overlay()->hasAny() || pluginOverlay) {
         reasons |= SC_NOTIFICATION;
         if (!full)
             return reasons;
