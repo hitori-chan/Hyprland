@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cstring>
 #include <limits>
+#include <utility>
 #include <ranges>
 
 #include <sys/timerfd.h>
@@ -223,14 +224,34 @@ uint64_t CEventLoopManager::doLater(const std::function<void()>& fn) {
     m_idle.eventSource = wl_event_loop_add_idle(
         m_wayland.loop,
         [](void* data) {
-            auto IDLE = sc<CEventLoopManager::SIdleData*>(data);
-            auto fns  = std::move(IDLE->fns);
+            auto IDLE  = sc<CEventLoopManager::SIdleData*>(data);
+            auto BATCH = std::move(IDLE->fns);
             IDLE->fns.clear();
             IDLE->eventSource = nullptr;
-            for (auto& f : fns) {
-                if (f.second)
-                    f.second();
+
+            if (!IDLE->running.empty()) {
+                // a callback dispatched the loop: run this inner batch as
+                // is, without disturbing the outer one's cancellation
+                for (auto& f : BATCH) {
+                    if (f.second)
+                        f.second();
+                }
+                return;
             }
+
+            // by index: an entry may cancel later ones (removeDoLater nulls
+            // them). Each callable is released as soon as it returns: a later
+            // entry may unload the plugin whose code it is (a config reload
+            // is itself a doLater), and destroying it after that would call
+            // into unmapped code.
+            IDLE->running = std::move(BATCH);
+            for (IDLE->runningIdx = 0; IDLE->runningIdx < IDLE->running.size(); ++IDLE->runningIdx) {
+                auto fn = std::exchange(IDLE->running[IDLE->runningIdx].second, nullptr);
+                if (fn)
+                    fn();
+            }
+            IDLE->running.clear();
+            IDLE->runningIdx = 0;
         },
         &m_idle);
 
@@ -239,6 +260,12 @@ uint64_t CEventLoopManager::doLater(const std::function<void()>& fn) {
 
 void CEventLoopManager::removeDoLater(uint64_t seq) {
     std::erase_if(m_idle.fns, [&seq](const auto& e) { return e.first == seq; });
+
+    // never the running entry itself: its callable is executing
+    for (size_t i = m_idle.runningIdx + 1; i < m_idle.running.size(); ++i) {
+        if (m_idle.running[i].first == seq)
+            m_idle.running[i].second = nullptr;
+    }
 
     if (m_idle.fns.empty() && m_idle.eventSource) {
         wl_event_source_remove(m_idle.eventSource);
