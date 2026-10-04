@@ -268,6 +268,12 @@ namespace Desktop::View {
             return geometricBox(GEOMETRIC_CURRENT);
         }
 
+        // fork: the content frame's offset inside the main buffer. The box is
+        // the client's xdg geometry; a CSD client's buffer carries its shadow
+        // margin around that, so the buffer (surface-local) origin sits at the
+        // box origin minus this. Zero for X11 (its geometry is global).
+        Vector2D contentOffset() const;
+
         std::unordered_map<std::string, std::string> getEnv();
 
         //

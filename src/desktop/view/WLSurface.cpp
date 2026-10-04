@@ -117,6 +117,14 @@ CRegion CWLSurface::computeDamage(const std::optional<CBox>& box) const {
             return {};
     }
 
+    // a window's surface coords are offset by its content offset: the box
+    // (and the caller's translation to the window position) starts at the
+    // content frame, not at the buffer's (CSD margin) origin
+    Vector2D geometryOffset;
+    if (m_view && m_view->type() == VIEW_TYPE_WINDOW)
+        if (const auto WINDOW = dynamicPointerCast<CWindow>(m_view.lock()); WINDOW)
+            geometryOffset = WINDOW->contentOffset();
+
     const auto CORRECTVEC = correctSmallVecBuf();
 
     CRegion    damage = m_resource->m_current.accumulateBufferDamage();
@@ -130,6 +138,7 @@ CRegion CWLSurface::computeDamage(const std::optional<CBox>& box) const {
 
     // go from buffer coords in the damage to hl logical
     damage.scale(SURFSIZE / BUFSIZE);
+    damage.translate(-geometryOffset);
 
     if (boxSize)
         damage.intersect(CBox{{}, boxSize.value()});
@@ -183,7 +192,15 @@ std::optional<CBox> CWLSurface::getSurfaceBoxGlobal() const {
     if (!desktopComponent())
         return {};
 
-    return m_view->surfaceLogicalBox();
+    auto box = m_view->surfaceLogicalBox();
+
+    // a window's box is its content frame: its main surface sits at the box
+    // origin minus the content offset, at the surface's own size
+    if (box && m_resource && m_view->type() == VIEW_TYPE_WINDOW)
+        if (const auto WINDOW = dynamicPointerCast<CWindow>(m_view.lock()); WINDOW && !WINDOW->backend().isX11())
+            box = CBox{box->pos() - WINDOW->contentOffset(), m_resource->m_current.size};
+
+    return box;
 }
 
 void CWLSurface::appendConstraint(WP<CPointerConstraint> constraint) {

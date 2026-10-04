@@ -183,6 +183,10 @@ const IWindowBackend& CWindow::backend() const {
     return *m_backend;
 }
 
+Vector2D CWindow::contentOffset() const {
+    return m_backend && !m_backend->isX11() ? m_backend->geometry().box.pos() : Vector2D{};
+}
+
 CWindowSwallowController& CWindow::swallowing() {
     return *m_swallowing;
 }
