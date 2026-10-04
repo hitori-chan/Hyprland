@@ -334,6 +334,21 @@ std::expected<SGeometryRequested, eGeometryFailure> CWindowTarget::desiredGeomet
 
     requested.size = clampSizeForDesired(DESIRED_GEOM.size());
 
+    // A CSD toplevel's declared geometry is its CONTENT frame: the content
+    // is inset by the shadow margin inside a larger buffer, so the buffer
+    // (surface) size is the actual window-box size. The window box is the
+    // surface frame — the CSD configure fix sizes the buffer to the box —
+    // so a geometry that declares a CSD offset must adopt the buffer size
+    // (adopting the content would clip the bottom/right shadow and break
+    // the size round-trip). No rule or placement can see the frame split
+    // the client made, so the box is the surface.
+    const bool CSD_GEOM = DESIRED_GEOM.x > 0 || DESIRED_GEOM.y > 0;
+    if (CSD_GEOM) {
+        const auto SURFACE = m_window->wlSurface()->resource();
+        if (SURFACE->m_current.size.x > 5 && SURFACE->m_current.size.y > 5)
+            requested.size = clampSizeForDesired(m_window->backend().clientToLogical(CBox{{}, SURFACE->m_current.size}, PMONITOR).size());
+    }
+
     if (m_window->backend().isX11())
         requested.pos = DESIRED_GEOM.pos() + (DESIRED_GEOM.size() - requested.size) / 2.F;
 
@@ -347,6 +362,13 @@ std::expected<SGeometryRequested, eGeometryFailure> CWindowTarget::desiredGeomet
         return std::unexpected(GEOMETRY_NO_DESIRED);
     }
 
+    // A CSD toplevel's declared geometry is its CONTENT frame: the content
+    // is inset by the shadow margin inside a larger buffer, so the buffer
+    // (surface) size is the actual window-box size. The window box is the
+    // surface frame — the CSD configure fix sizes the buffer to the box —
+    // so a geometry that declares a CSD offset must adopt the buffer size,
+    // exactly like the no-geometry case below (adopting the content would
+    // clip the bottom/right shadow and break the size round-trip).
     if (DESIRED_GEOM.width <= 2 || DESIRED_GEOM.height <= 2) {
         const auto SURFACE = m_window->wlSurface()->resource();
 
@@ -356,6 +378,11 @@ std::expected<SGeometryRequested, eGeometryFailure> CWindowTarget::desiredGeomet
             requested.size = clampSizeForDesired(m_window->backend().clientToLogical(CBox{{}, SURFACE->m_current.size}, PMONITOR).size());
             return requested;
         }
+
+        if (CSD_GEOM)
+            // a CSD offset without a committed buffer yet: keep the content
+            // size as a fallback rather than failing the desired geometry
+            return requested;
 
         const bool X11_OVERRIDE_REDIRECT = m_window->backend().isX11() && m_window->backend().traits().overrideRedirect;
         if (X11_OVERRIDE_REDIRECT) {

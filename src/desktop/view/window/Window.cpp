@@ -1838,6 +1838,14 @@ void CWindow::commitWindow(bool initialCommit) {
             // keeping the window centered where it was.
             const auto GEOMBOX = m_backend->geometry().box;
             auto       size    = (GEOMBOX.w > 5 && GEOMBOX.h > 5) ? GEOMBOX.size() : m_wlSurface->resource()->m_current.size;
+            // a CSD client's declared geometry is its CONTENT frame (the
+            // content inset by the shadow margin inside a bigger buffer).
+            // The window box is the SURFACE frame — the CSD configure fix
+            // sizes the buffer to the box — so adopt the buffer size, not
+            // the content size; adopting the content would clip the
+            // bottom/right shadow and break the size round-trip.
+            if (GEOMBOX.x > 0 || GEOMBOX.y > 0)
+                size = m_wlSurface->resource()->m_current.size;
 
             if (HAS_HINTS)
                 size = size.clamp(MINSIZE, MAXSIZE);
