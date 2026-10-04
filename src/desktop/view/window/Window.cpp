@@ -268,6 +268,24 @@ SBoxExtents CWindow::getFullWindowExtents() const {
 
     maxExtents.bottomRight.y = std::max(EXTENTS.bottomRight.y, maxExtents.bottomRight.y);
 
+    // A CSD buffer extends PAST the box: by the geometry offset (top/left)
+    // and by the measured right/bottom margin. Both margins render outside
+    // the box (the client's shadow), so they count as window extents for
+    // damage, the slide-animation clip and the bounding box.
+    if (!m_backend->isX11()) {
+        const auto GEO   = m_backend->geometry().box;
+        const auto OFF   = GEO.pos();
+        if (OFF.x > 0 || OFF.y > 0) {
+            Vector2D RB{0, 0};
+            if (GEO.w > 0 && GEO.h > 0)
+                RB = (m_wlSurface->resource()->m_current.size - OFF - GEO.size()).clamp({0, 0});
+            maxExtents.topLeft.x = std::max(OFF.x, maxExtents.topLeft.x);
+            maxExtents.topLeft.y = std::max(OFF.y, maxExtents.topLeft.y);
+            maxExtents.bottomRight.x = std::max(RB.x, maxExtents.bottomRight.x);
+            maxExtents.bottomRight.y = std::max(RB.y, maxExtents.bottomRight.y);
+        }
+    }
+
     if (m_wlSurface->exists() && !m_backend->isX11() && popupHead()) {
         const auto& surfaceExtents = popupHead()->popupTreeExtents();
 
@@ -1835,17 +1853,11 @@ void CWindow::commitWindow(bool initialCommit) {
 
         if (m_sizeFromClientSerial && m_sizeFromClientAcked) {
             // the client answered our 0x0 configure: adopt the size it chose,
-            // keeping the window centered where it was.
+            // keeping the window centered where it was. The declared geometry
+            // is the CONTENT frame for CSD clients (the buffer's shadow margin
+            // renders outside the box), so the adopted box is the content.
             const auto GEOMBOX = m_backend->geometry().box;
             auto       size    = (GEOMBOX.w > 5 && GEOMBOX.h > 5) ? GEOMBOX.size() : m_wlSurface->resource()->m_current.size;
-            // a CSD client's declared geometry is its CONTENT frame (the
-            // content inset by the shadow margin inside a bigger buffer).
-            // The window box is the SURFACE frame — the CSD configure fix
-            // sizes the buffer to the box — so adopt the buffer size, not
-            // the content size; adopting the content would clip the
-            // bottom/right shadow and break the size round-trip.
-            if (GEOMBOX.x > 0 || GEOMBOX.y > 0)
-                size = m_wlSurface->resource()->m_current.size;
 
             if (HAS_HINTS)
                 size = size.clamp(MINSIZE, MAXSIZE);

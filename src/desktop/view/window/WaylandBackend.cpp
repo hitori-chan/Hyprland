@@ -47,23 +47,20 @@ static SGeometryHints geometryHintsFrom(const SP<CXDGSurfaceResource>& resource,
 
     const auto& TOPLEVEL_STATE = state == eBackendState::BACKEND_STATE_PENDING ? TOPLEVEL->m_pending : TOPLEVEL->m_current;
 
-    // Surface frame, all axes alike (see csdFrameDelta): the window box is
-    // the surface, so the content-frame min/max requests bound it as
-    // content + offset + the measured right/bottom margin.
-    const auto DELTA = resource->csdFrameDelta();
-
+    // The window box is the CONTENT frame (CSD margins render outside it),
+    // so the client's own min/max requests bound it directly.
     Vector2D minSize;
     if (TOPLEVEL_STATE.minSize.x > 1)
-        minSize.x = TOPLEVEL_STATE.minSize.x + DELTA.x;
+        minSize.x = TOPLEVEL_STATE.minSize.x;
     if (TOPLEVEL_STATE.minSize.y > 1)
-        minSize.y = TOPLEVEL_STATE.minSize.y + DELTA.y;
+        minSize.y = TOPLEVEL_STATE.minSize.y;
     minSize = minSize.clamp({1, 1});
 
     Vector2D maxSize;
     if (TOPLEVEL_STATE.maxSize.x > 1)
-        maxSize.x = TOPLEVEL_STATE.maxSize.x + DELTA.x;
+        maxSize.x = TOPLEVEL_STATE.maxSize.x;
     if (TOPLEVEL_STATE.maxSize.y > 1)
-        maxSize.y = TOPLEVEL_STATE.maxSize.y + DELTA.y;
+        maxSize.y = TOPLEVEL_STATE.maxSize.y;
     if (maxSize.x < 5)
         maxSize.x = std::numeric_limits<double>::max();
     if (maxSize.y < 5)
@@ -308,35 +305,6 @@ Vector2D CWaylandBackend::bufferToSurfaceLocal(const Vector2D& buffer) const {
     return buffer;
 }
 
-// The CSD content frame of a toplevel: the client declares its content
-// rectangle (offset o, size c) inside its buffer, and its buffer is
-// o + c + r per axis (r = the bottom/right margin, client-chosen).
-// The window box is the SURFACE frame; the client draws its content at
-// whatever size the configure carries. Configuring with the box size
-// therefore makes the content overflow the box by o (clipped at the
-// right/bottom — the "content shoved down-right" shape). The configure
-// must carry the content size instead: box - o - r. The client's buffer
-// is then exactly o + (box - o - r) + r = box: no clip, full shadow on
-// all sides, and a remembered box round-trips exactly (grant the box the
-// window closed at and the client redraws at its old content size).
-static Vector2D csdContentSize(const SP<CXDGSurfaceResource>& resource, const Vector2D& boxSize) {
-    // 0x0 is the "you decide" sentinel: it must stay unconstrained
-    // (xdg-shell treats it as no limit; a clamped 1x1 would pin the client).
-    if (boxSize.x <= 0 && boxSize.y <= 0)
-        return boxSize;
-
-    const auto GEO   = resource->m_current.geometry;
-    const auto OFF   = GEO.pos();
-    if (OFF.x <= 0 && OFF.y <= 0)
-        return boxSize; // no CSD offset: the box IS the content frame
-
-    Vector2D RB{0, 0};
-    if (const auto SURF = resource->m_surface.lock())
-        RB = (SURF->m_current.size - OFF - GEO.size()).clamp({0, 0});
-
-    return (boxSize - OFF - RB).clamp({1, 1});
-}
-
 void CWaylandBackend::configure(const CBox& logicalBox, PHLMONITOR preferredMonitor, bool force) {
     const auto RESOURCE = m_resource.lock();
     const auto TOPLEVEL = RESOURCE ? RESOURCE->m_toplevel.lock() : nullptr;
@@ -364,11 +332,10 @@ void CWaylandBackend::configure(const CBox& logicalBox, PHLMONITOR preferredMoni
         return;
 
     m_pendingReportedSize = CLIENT_BOX.size();
-    // the configure carries the CONTENT size (CSD clients add their own
-    // margins on top of it); the ack stays in the box frame, so the
-    // acked size — and with it the window box and the layout — keeps the
-    // surface frame the renderer and the placement memory both use.
-    m_configureAcks.add(TOPLEVEL->setSize(csdContentSize(RESOURCE, CLIENT_BOX.size())), CLIENT_BOX.size().floor());
+    // the box IS the content frame (CSD margins render outside it), so the
+    // configure carries the box size verbatim and the ack stays in the same
+    // frame the layout and the placement memory use.
+    m_configureAcks.add(TOPLEVEL->setSize(CLIENT_BOX.size()), CLIENT_BOX.size().floor());
 }
 
 void CWaylandBackend::requestClientSize() {

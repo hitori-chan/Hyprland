@@ -332,25 +332,14 @@ std::expected<SGeometryRequested, eGeometryFailure> CWindowTarget::desiredGeomet
     CBox               DESIRED_GEOM    = CLIENT_GEOMETRY.box;
     const auto         PMONITOR        = m_window->m_monitor.lock();
 
-    requested.size = clampSizeForDesired(DESIRED_GEOM.size());
-
     // A CSD toplevel's declared geometry is its CONTENT frame: the content
-    // is inset by the shadow margin inside a larger buffer, so the buffer
-    // (surface) size is the actual window-box size. The window box is the
-    // surface frame — the CSD configure fix sizes the buffer to the box —
-    // so a geometry that declares a CSD offset must adopt the buffer size
-    // (adopting the content would clip the bottom/right shadow and break
-    // the size round-trip). No rule or placement can see the frame split
-    // the client made, so the box is the surface.
+    // is inset by the shadow margin inside a larger buffer, and the buffer
+    // is rendered offset so the margin lands OUTSIDE the box (the shadow),
+    // never inside it. The window box is therefore the content frame —
+    // exactly what the client declared and what its min/max hints bound.
     const bool CSD_GEOM = DESIRED_GEOM.x > 0 || DESIRED_GEOM.y > 0;
-    if (CSD_GEOM) {
-        const auto SURFACE = m_window->wlSurface()->resource();
-        if (SURFACE->m_current.size.x > 5 && SURFACE->m_current.size.y > 5)
-            // the committed buffer is a legal size by construction (the
-            // content meets its own min/max), so no hint clamp here: the
-            // margin measurement may still be settling on the first commit
-            requested.size = m_window->backend().clientToLogical(CBox{{}, SURFACE->m_current.size}, PMONITOR).size();
-    }
+
+    requested.size = clampSizeForDesired(DESIRED_GEOM.size());
 
     if (m_window->backend().isX11())
         requested.pos = DESIRED_GEOM.pos() + (DESIRED_GEOM.size() - requested.size) / 2.F;
@@ -365,13 +354,6 @@ std::expected<SGeometryRequested, eGeometryFailure> CWindowTarget::desiredGeomet
         return std::unexpected(GEOMETRY_NO_DESIRED);
     }
 
-    // A CSD toplevel's declared geometry is its CONTENT frame: the content
-    // is inset by the shadow margin inside a larger buffer, so the buffer
-    // (surface) size is the actual window-box size. The window box is the
-    // surface frame — the CSD configure fix sizes the buffer to the box —
-    // so a geometry that declares a CSD offset must adopt the buffer size,
-    // exactly like the no-geometry case below (adopting the content would
-    // clip the bottom/right shadow and break the size round-trip).
     if (DESIRED_GEOM.width <= 2 || DESIRED_GEOM.height <= 2) {
         const auto SURFACE = m_window->wlSurface()->resource();
 

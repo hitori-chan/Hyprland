@@ -161,6 +161,14 @@ bool CHyprDropShadowDecoration::canRender(PHLMONITOR pMonitor) {
     if (PWINDOW->m_ruleApplicator->noShadow().valueOrDefault())
         return false;
 
+    // A CSD client draws its own shadow in the buffer margin (rendered
+    // outside the box); a compositor shadow on top would double it.
+    if (!PWINDOW->backend().isX11()) {
+        const auto GEO = PWINDOW->backend().geometry().box;
+        if (GEO.x > 0 || GEO.y > 0)
+            return false;
+    }
+
     return true;
 }
 

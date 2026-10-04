@@ -27,8 +27,12 @@ CBox CSurfacePassElement::getTexBox() {
     auto         PSURFACE                    = Desktop::View::CWLSurface::fromResource(m_data.surface);
 
     CBox         windowBox;
+    const bool   CSD_MAIN = m_data.mainSurface && (m_data.csdOffset.x > 0 || m_data.csdOffset.y > 0);
     if (m_data.surface && m_data.mainSurface) {
-        windowBox = {sc<int>(outputX) + m_data.pos.x + m_data.localPos.x, sc<int>(outputY) + m_data.pos.y + m_data.localPos.y, m_data.w, m_data.h};
+        // a CSD main buffer is bigger than the box (the shadow margin);
+        // its drawn extent is the BUFFER at pos - offset, not the box
+        windowBox = {sc<int>(outputX) + m_data.pos.x + m_data.localPos.x, sc<int>(outputY) + m_data.pos.y + m_data.localPos.y,
+                     CSD_MAIN ? m_data.surface->m_current.size.x : m_data.w, CSD_MAIN ? m_data.surface->m_current.size.y : m_data.h};
 
         // however, if surface buffer w / h < box, we need to adjust them
         const auto PWINDOW = PSURFACE ? Desktop::View::CWindow::fromView(PSURFACE->view()) : nullptr;
@@ -67,7 +71,9 @@ CBox CSurfacePassElement::getTexBox() {
         }
     }
 
-    if (m_data.squishOversized) {
+    // squishing clips a surface to the box; a CSD buffer must keep its
+    // margin outside the box (that is the shadow), so it is exempt
+    if (m_data.squishOversized && !CSD_MAIN) {
         if (m_data.localPos.x + windowBox.width > m_data.w)
             windowBox.width = m_data.w - m_data.localPos.x;
         if (m_data.localPos.y + windowBox.height > m_data.h)

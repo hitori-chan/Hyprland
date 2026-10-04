@@ -20,6 +20,10 @@ class CSurfacePassElement : public IPassElement {
         PHLMONITORREF          pMonitor;
         Time::steady_tp        when = Time::steadyNow();
         Vector2D               pos, localPos;
+        // CSD: the main buffer is drawn at pos - csdOffset (the content
+        // lands at the box, the shadow margin outside it) at the BUFFER
+        // size. Zero = no CSD (drawn at the box, squished to the box).
+        Vector2D               csdOffset = {};
 
         void*                  data        = nullptr;
         SP<CWLSurfaceResource> surface     = nullptr;

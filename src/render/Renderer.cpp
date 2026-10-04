@@ -699,6 +699,16 @@ void IHyprRenderer::renderWindow(PHLWINDOW pWindow, PHLMONITOR pMonitor, const S
             renderdata.blur = false;
         }
 
+        // CSD: a toplevel that declares a geometry offset draws its shadow
+        // margin outside the box, so the main buffer renders offset by the
+        // same amount (content lands at the box). Fullscreen windows keep
+        // the box as the content frame and clip the buffer to it.
+        if (!pWindow->backend().isX11() && !Fullscreen::controller()->isFullscreen(pWindow)) {
+            const auto GEO = pWindow->backend().geometry().box;
+            if (GEO.x > 0 || GEO.y > 0)
+                renderdata.csdOffset = GEO.pos();
+        }
+
         renderdata.surfaceCounter = 0;
         pWindow->wlSurface()->resource()->breadthfirst(
             [this, &renderdata, &pWindow](SP<CWLSurfaceResource> s, const Vector2D& offset, void* data) {
@@ -708,7 +718,10 @@ void IHyprRenderer::renderWindow(PHLWINDOW pWindow, PHLMONITOR pMonitor, const S
                 if (s->m_current.size.x < 1 || s->m_current.size.y < 1)
                     return;
 
-                renderdata.localPos    = offset;
+                // every surface of the tree sits in the top-buffer's
+                // coordinate space, which renders at pos - csdOffset for a
+                // CSD window (zero for non-CSD)
+                renderdata.localPos    = offset - renderdata.csdOffset;
                 renderdata.texture     = s->m_current.texture;
                 renderdata.surface     = s;
                 renderdata.mainSurface = s == pWindow->wlSurface()->resource();

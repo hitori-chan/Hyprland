@@ -503,38 +503,21 @@ void CXDGToplevelResource::close() {
     m_resource->sendClose();
 }
 
-Vector2D CXDGSurfaceResource::csdFrameDelta() const {
-    const auto OFF = m_current.geometry.pos();
-    // No declared content frame (the client never sent set_geometry): the
-    // whole buffer is content — there is no margin to measure. Without
-    // this guard the unmeasured "surface - 0 - 0" reads as a full-buffer
-    // margin and inflates every size hint of plain non-CSD windows.
-    const auto CONTENT = m_current.geometry.size();
-    if (CONTENT.x <= 0 || CONTENT.y <= 0)
-        return {};
-    Vector2D RB{0, 0};
-    if (const auto WL = m_surface.lock())
-        RB = (WL->m_current.size - OFF - CONTENT).clamp({0, 0});
-    return OFF + RB;
-}
-
 Vector2D CXDGToplevelResource::layoutMinSize() {
-    const auto DELTA = m_owner ? m_owner->csdFrameDelta() : Vector2D{};
-    Vector2D   minSize;
+    Vector2D minSize;
     if (m_current.minSize.x > 1)
-        minSize.x = m_current.minSize.x + DELTA.x;
+        minSize.x = m_current.minSize.x;
     if (m_current.minSize.y > 1)
-        minSize.y = m_current.minSize.y + DELTA.y;
+        minSize.y = m_current.minSize.y;
     return minSize;
 }
 
 Vector2D CXDGToplevelResource::layoutMaxSize() {
-    const auto DELTA = m_owner ? m_owner->csdFrameDelta() : Vector2D{};
-    Vector2D   maxSize;
+    Vector2D maxSize;
     if (m_current.maxSize.x > 1)
-        maxSize.x = m_current.maxSize.x + DELTA.x;
+        maxSize.x = m_current.maxSize.x;
     if (m_current.maxSize.y > 1)
-        maxSize.y = m_current.maxSize.y + DELTA.y;
+        maxSize.y = m_current.maxSize.y;
     return maxSize;
 }
 
