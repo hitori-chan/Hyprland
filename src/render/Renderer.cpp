@@ -699,19 +699,24 @@ void IHyprRenderer::renderWindow(PHLWINDOW pWindow, PHLMONITOR pMonitor, const S
             renderdata.blur = false;
         }
 
+        // subsurface offsets are relative to the main buffer's origin, which
+        // sits at the box origin minus the xdg geometry offset (the main
+        // surface itself is cropped to the box in calculateUVForSurface)
+        const auto GEOMETRY_OFFSET = pWindow->backend().isX11() ? Vector2D{} : pWindow->backend().geometry().box.pos();
+
         renderdata.surfaceCounter = 0;
         pWindow->wlSurface()->resource()->breadthfirst(
-            [this, &renderdata, &pWindow](SP<CWLSurfaceResource> s, const Vector2D& offset, void* data) {
+            [this, &renderdata, &pWindow, &GEOMETRY_OFFSET](SP<CWLSurfaceResource> s, const Vector2D& offset, void* data) {
                 if (!s->m_current.texture)
                     return;
 
                 if (s->m_current.size.x < 1 || s->m_current.size.y < 1)
                     return;
 
-                renderdata.localPos    = offset;
+                renderdata.mainSurface = s == pWindow->wlSurface()->resource();
+                renderdata.localPos    = renderdata.mainSurface ? offset : offset - GEOMETRY_OFFSET;
                 renderdata.texture     = s->m_current.texture;
                 renderdata.surface     = s;
-                renderdata.mainSurface = s == pWindow->wlSurface()->resource();
                 addPassElement(makeUnique<CSurfacePassElement>(renderdata));
                 renderdata.surfaceCounter++;
             },
