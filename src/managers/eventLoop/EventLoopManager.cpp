@@ -223,14 +223,18 @@ uint64_t CEventLoopManager::doLater(const std::function<void()>& fn) {
     m_idle.eventSource = wl_event_loop_add_idle(
         m_wayland.loop,
         [](void* data) {
-            auto IDLE = sc<CEventLoopManager::SIdleData*>(data);
-            auto fns  = std::move(IDLE->fns);
+            auto IDLE     = sc<CEventLoopManager::SIdleData*>(data);
+            IDLE->running = std::move(IDLE->fns);
             IDLE->fns.clear();
             IDLE->eventSource = nullptr;
-            for (auto& f : fns) {
-                if (f.second)
-                    f.second();
+            // by index: an entry may cancel later ones (removeDoLater nulls
+            // them), e.g. a plugin unloaded mid-batch drops its own lambdas
+            // while its code is still mapped
+            for (IDLE->runningIdx = 0; IDLE->runningIdx < IDLE->running.size(); ++IDLE->runningIdx) {
+                if (IDLE->running[IDLE->runningIdx].second)
+                    IDLE->running[IDLE->runningIdx].second();
             }
+            IDLE->running.clear();
         },
         &m_idle);
 
@@ -239,6 +243,12 @@ uint64_t CEventLoopManager::doLater(const std::function<void()>& fn) {
 
 void CEventLoopManager::removeDoLater(uint64_t seq) {
     std::erase_if(m_idle.fns, [&seq](const auto& e) { return e.first == seq; });
+
+    // never the running entry itself: its callable is executing
+    for (size_t i = m_idle.runningIdx + 1; i < m_idle.running.size(); ++i) {
+        if (m_idle.running[i].first == seq)
+            m_idle.running[i].second = nullptr;
+    }
 
     if (m_idle.fns.empty() && m_idle.eventSource) {
         wl_event_source_remove(m_idle.eventSource);

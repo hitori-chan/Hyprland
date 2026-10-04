@@ -70,6 +70,10 @@ class CEventLoopManager {
     struct SIdleData {
         wl_event_source*                                        eventSource = nullptr;
         std::vector<std::pair<uint64_t, std::function<void()>>> fns;
+        // the batch being run and the index of the running entry:
+        // removeDoLater() must also cancel entries still ahead in it
+        std::vector<std::pair<uint64_t, std::function<void()>>> running;
+        size_t                                                  runningIdx = 0;
     };
 
     WP<SReadableWaiter> doOnReadable(Hyprutils::OS::CFileDescriptor fd, std::function<void()>&& fn);
