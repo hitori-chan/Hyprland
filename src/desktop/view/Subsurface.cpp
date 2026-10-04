@@ -324,9 +324,13 @@ Vector2D CSubsurface::coordsRelativeToParent() const {
 Vector2D CSubsurface::coordsGlobal() const {
     Vector2D coords = coordsRelativeToParent();
 
-    if (!m_windowParent.expired())
+    if (!m_windowParent.expired()) {
         coords += m_windowParent->position(Desktop::View::IGeometric::GEOMETRIC_CURRENT);
-    else if (m_popupParent)
+        // the main buffer's origin sits at the box origin minus the xdg
+        // geometry offset (the box is the content frame)
+        if (!m_windowParent->backend().isX11())
+            coords -= m_windowParent->backend().geometry().box.pos();
+    } else if (m_popupParent)
         coords += m_popupParent->coordsGlobal();
     else if (!m_layerSurfaceParent.expired())
         coords += m_layerSurfaceParent->position(Desktop::View::IGeometric::GEOMETRIC_CURRENT);

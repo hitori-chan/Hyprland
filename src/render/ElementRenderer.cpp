@@ -88,7 +88,22 @@ void IElementRenderer::calculateUVForSurface(CRenderContext& ctx, PHLWINDOW pWin
             }
         }
 
-        if (projSize != Vector2D{} && fixMisalignedFSV1) {
+        // The window box is the client's xdg geometry (its content frame);
+        // a CSD client's buffer carries its shadow margin around that. Show
+        // the box-sized region at the geometry origin, 1:1: the margin is
+        // cropped, never padded inside the box or squeezed into it. (The
+        // upstream crop below is disabled because upstream tells every
+        // window maximized, which suppresses the margins this fork allows.)
+        const auto GEOMETRY = main && pWindow && pSurface == pWindow->wlSurface()->resource() ? pWindow->backend().geometry().box : CBox{};
+        const auto SURFSIZE = pSurface->m_current.size;
+        const bool GEOMETRY_CROP =
+            GEOMETRY.w > 0 && GEOMETRY.h > 0 && SURFSIZE.x > 0 && SURFSIZE.y > 0 && (GEOMETRY.pos() != Vector2D{} || GEOMETRY.size() != SURFSIZE);
+
+        if (GEOMETRY_CROP) {
+            const auto RANGE = uvBR - uvTL;
+            uvBR             = uvTL + (GEOMETRY.pos() + projSizeUnscaled) / SURFSIZE * RANGE;
+            uvTL             = uvTL + GEOMETRY.pos() / SURFSIZE * RANGE;
+        } else if (projSize != Vector2D{} && fixMisalignedFSV1) {
             // instead of nearest_neighbor (we will repeat / skip)
             // just cut off / expand surface
             const Vector2D PIXELASUV   = Vector2D{1, 1} / pSurface->m_current.bufferSize;
