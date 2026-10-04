@@ -222,6 +222,18 @@ class CXDGSurfaceResource {
     bool     m_initialCommit = true;
     bool     m_mapped        = false;
 
+    // The frame delta between the client's content and the window box
+    // (the surface): the geometry offset plus the measured right/bottom
+    // margin (surface - offset - content of the last buffer, 0 before one
+    // commits). The window box is the SURFACE frame — the CSD content-
+    // frame fix sizes the buffer to the box — so content-frame requests
+    // that bound the box (the min/max sizes) are expressed in that frame
+    // by adding this. A pinned axis gets the same delta: a strict content
+    // request is a strict surface request, and the surface is what the
+    // window renders (special-casing the pinned axis to the content frame
+    // is what clipped the bottom/right margin of fixed-size CSD windows).
+    Vector2D csdFrameDelta() const;
+
     uint32_t scheduleConfigure();
     // do not call directly
     void configure();

@@ -346,7 +346,10 @@ std::expected<SGeometryRequested, eGeometryFailure> CWindowTarget::desiredGeomet
     if (CSD_GEOM) {
         const auto SURFACE = m_window->wlSurface()->resource();
         if (SURFACE->m_current.size.x > 5 && SURFACE->m_current.size.y > 5)
-            requested.size = clampSizeForDesired(m_window->backend().clientToLogical(CBox{{}, SURFACE->m_current.size}, PMONITOR).size());
+            // the committed buffer is a legal size by construction (the
+            // content meets its own min/max), so no hint clamp here: the
+            // margin measurement may still be settling on the first commit
+            requested.size = m_window->backend().clientToLogical(CBox{{}, SURFACE->m_current.size}, PMONITOR).size();
     }
 
     if (m_window->backend().isX11())

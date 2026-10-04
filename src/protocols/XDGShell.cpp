@@ -503,21 +503,31 @@ void CXDGToplevelResource::close() {
     m_resource->sendClose();
 }
 
+Vector2D CXDGSurfaceResource::csdFrameDelta() const {
+    const auto OFF = m_current.geometry.pos();
+    Vector2D      RB{0, 0};
+    if (const auto WL = m_surface.lock())
+        RB = (WL->m_current.size - OFF - m_current.geometry.size()).clamp({0, 0});
+    return OFF + RB;
+}
+
 Vector2D CXDGToplevelResource::layoutMinSize() {
-    Vector2D minSize;
+    const auto DELTA = m_owner ? m_owner->csdFrameDelta() : Vector2D{};
+    Vector2D   minSize;
     if (m_current.minSize.x > 1)
-        minSize.x = m_owner ? m_current.minSize.x + m_owner->m_current.geometry.pos().x : m_current.minSize.x;
+        minSize.x = m_current.minSize.x + DELTA.x;
     if (m_current.minSize.y > 1)
-        minSize.y = m_owner ? m_current.minSize.y + m_owner->m_current.geometry.pos().y : m_current.minSize.y;
+        minSize.y = m_current.minSize.y + DELTA.y;
     return minSize;
 }
 
 Vector2D CXDGToplevelResource::layoutMaxSize() {
-    Vector2D maxSize;
+    const auto DELTA = m_owner ? m_owner->csdFrameDelta() : Vector2D{};
+    Vector2D   maxSize;
     if (m_current.maxSize.x > 1)
-        maxSize.x = m_owner ? m_current.maxSize.x + m_owner->m_current.geometry.pos().x : m_current.maxSize.x;
+        maxSize.x = m_current.maxSize.x + DELTA.x;
     if (m_current.maxSize.y > 1)
-        maxSize.y = m_owner ? m_current.maxSize.y + m_owner->m_current.geometry.pos().y : m_current.maxSize.y;
+        maxSize.y = m_current.maxSize.y + DELTA.y;
     return maxSize;
 }
 
