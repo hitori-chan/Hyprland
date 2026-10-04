@@ -183,6 +183,11 @@ namespace Event {
 
                 Event<>           layoutChanged;
                 Event<PHLMONITOR> reservedChanged; // combined usable area changed
+                // per frame while a fullscreen client could go solitary: a
+                // listener drawing compositor-side content over this monitor
+                // (a plugin's on-top surface) sets the flag, and solitary /
+                // direct scanout yield like for the notification overlay
+                Event<PHLMONITOR, bool&> blockSolitary;
             } monitor;
 
             struct {
