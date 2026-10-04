@@ -1512,7 +1512,7 @@ ActionResult Actions::pass(std::optional<PHLWINDOW> w) {
         if (S.m_lastCode != 0)
             g_pSeatManager->setKeyboardFocus(window->wlSurface()->resource());
         else
-            g_pSeatManager->setPointerFocus(window->wlSurface()->resource(), {1, 1});
+            g_pSeatManager->setPointerFocus(window->wlSurface()->resource(), Vector2D{1, 1} + window->contentOffset());
     }
 
     g_pSeatManager->sendKeyboardMods(g_pInputManager->hyprlandModsToXkb(g_pSeatManager->m_keyboard.lock(), g_pInputManager->getModsFromAllKBs()), 0, 0, 0);
@@ -1575,7 +1575,7 @@ ActionResult Actions::pass(Input::ModifierMask modMask, uint32_t key, std::optio
         if (!isMouse)
             g_pSeatManager->setKeyboardFocus(window->wlSurface()->resource());
         else
-            g_pSeatManager->setPointerFocus(window->wlSurface()->resource(), {1, 1});
+            g_pSeatManager->setPointerFocus(window->wlSurface()->resource(), Vector2D{1, 1} + window->contentOffset());
 
         // if wl -> xwl, activate destination
         if (window->backend().isX11() && Desktop::focusState()->window() && !Desktop::focusState()->window()->backend().isX11())

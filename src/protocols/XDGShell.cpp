@@ -506,21 +506,23 @@ void CXDGToplevelResource::close() {
     m_resource->sendClose();
 }
 
+// the window box is the xdg geometry, so the client's limits apply as-is
+// (see geometryHintsFrom in WaylandBackend.cpp)
 Vector2D CXDGToplevelResource::layoutMinSize() {
     Vector2D minSize;
     if (m_current.minSize.x > 1)
-        minSize.x = m_owner ? m_current.minSize.x + m_owner->m_current.geometry.pos().x : m_current.minSize.x;
+        minSize.x = m_current.minSize.x;
     if (m_current.minSize.y > 1)
-        minSize.y = m_owner ? m_current.minSize.y + m_owner->m_current.geometry.pos().y : m_current.minSize.y;
+        minSize.y = m_current.minSize.y;
     return minSize;
 }
 
 Vector2D CXDGToplevelResource::layoutMaxSize() {
     Vector2D maxSize;
     if (m_current.maxSize.x > 1)
-        maxSize.x = m_owner ? m_current.maxSize.x + m_owner->m_current.geometry.pos().x : m_current.maxSize.x;
+        maxSize.x = m_current.maxSize.x;
     if (m_current.maxSize.y > 1)
-        maxSize.y = m_owner ? m_current.maxSize.y + m_owner->m_current.geometry.pos().y : m_current.maxSize.y;
+        maxSize.y = m_current.maxSize.y;
     return maxSize;
 }
 

@@ -1920,6 +1920,10 @@ void CHyprOpenGLImpl::renderTextureWithBlurInternal(CRenderContext& ctx, SP<ITex
         auto    PSURFACE       = Desktop::View::CWLSurface::fromResource(data.surface);
         if (PSURFACE && PSURFACE->m_hasBackgroundEffect && !PSURFACE->m_blurRegion.empty()) {
             CRegion protocolBlur = PSURFACE->m_blurRegion.copy();
+            // a window's main surface is drawn from its content offset (the
+            // CSD margin is cropped): the region is buffer-local
+            if (const auto WINDOW = Desktop::View::CWindow::fromView(PSURFACE->view()); WINDOW && WINDOW->wlSurface() == PSURFACE)
+                protocolBlur.translate(-WINDOW->contentOffset());
             protocolBlur.intersect(CBox{0, 0, box.width, box.height});
             protocolBlur.scale(m_renderData.pMonitor->m_scale);
             protocolBlur.translate(box.pos());

@@ -183,6 +183,10 @@ const IWindowBackend& CWindow::backend() const {
     return *m_backend;
 }
 
+Vector2D CWindow::contentOffset() const {
+    return m_backend && !m_backend->isX11() ? m_backend->geometry().box.pos() : Vector2D{};
+}
+
 CWindowSwallowController& CWindow::swallowing() {
     return *m_swallowing;
 }
@@ -275,11 +279,15 @@ SBoxExtents CWindow::getFullWindowExtents() const {
 
         maxExtents.topLeft.y = std::max(-surfaceExtents.y, maxExtents.topLeft.y);
 
-        if (surfaceExtents.x + surfaceExtents.width > m_wlSurface->resource()->m_current.size.x + maxExtents.bottomRight.x)
-            maxExtents.bottomRight.x = surfaceExtents.x + surfaceExtents.width - m_wlSurface->resource()->m_current.size.x;
+        // popup extents are relative to the box (the content frame), so
+        // overhang is measured against the box, not the CSD buffer
+        const auto BOXSIZE = size(Desktop::View::IGeometric::GEOMETRIC_CURRENT);
 
-        if (surfaceExtents.y + surfaceExtents.height > m_wlSurface->resource()->m_current.size.y + maxExtents.bottomRight.y)
-            maxExtents.bottomRight.y = surfaceExtents.y + surfaceExtents.height - m_wlSurface->resource()->m_current.size.y;
+        if (surfaceExtents.x + surfaceExtents.width > BOXSIZE.x + maxExtents.bottomRight.x)
+            maxExtents.bottomRight.x = surfaceExtents.x + surfaceExtents.width - BOXSIZE.x;
+
+        if (surfaceExtents.y + surfaceExtents.height > BOXSIZE.y + maxExtents.bottomRight.y)
+            maxExtents.bottomRight.y = surfaceExtents.y + surfaceExtents.height - BOXSIZE.y;
     }
 
     return maxExtents;
@@ -1855,9 +1863,11 @@ void CWindow::commitWindow(bool initialCommit) {
         }
 
         if (!m_everWindowed) {
-            // the same pinned-at-min heuristic the adoption above uses:
-            // placeholder frames don't count as a windowed presentation
-            const auto SIZE = m_wlSurface->resource()->m_current.size;
+            // the same pinned-at-min heuristic the adoption above uses, on
+            // the same content size: placeholder frames don't count as a
+            // windowed presentation
+            const auto GEOMBOX = m_backend->geometry().box;
+            const auto SIZE    = (GEOMBOX.w > 5 && GEOMBOX.h > 5) ? GEOMBOX.size() : m_wlSurface->resource()->m_current.size;
             if (SIZE.x > 5 && SIZE.y > 5 && !(HAS_HINTS && SIZE.x <= MINSIZE.x + 1 && SIZE.y <= MINSIZE.y + 1 && MINSIZE != MAXSIZE))
                 m_everWindowed = true;
         }

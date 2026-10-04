@@ -88,7 +88,37 @@ void IElementRenderer::calculateUVForSurface(CRenderContext& ctx, PHLWINDOW pWin
             }
         }
 
-        if (projSize != Vector2D{} && fixMisalignedFSV1) {
+        // The window box is the client's xdg geometry (its content frame);
+        // a CSD client's buffer carries its shadow margin around that. Show
+        // the box-sized region at the geometry origin, 1:1: the margin is
+        // cropped, never padded inside the box or squeezed into it. (The
+        // upstream crop below is disabled because upstream tells every
+        // window maximized, which suppresses the margins this fork allows.)
+        const auto GEOMETRY = main && pWindow && pSurface == pWindow->wlSurface()->resource() ? pWindow->backend().geometry().box : CBox{};
+        const auto SURFSIZE = pSurface->m_current.size;
+        const bool GEOMETRY_CROP =
+            GEOMETRY.w > 0 && GEOMETRY.h > 0 && SURFSIZE.x > 0 && SURFSIZE.y > 0 && (GEOMETRY.pos() != Vector2D{} || GEOMETRY.size() != SURFSIZE);
+
+        if (GEOMETRY_CROP) {
+            // while the window animates in, the whole content frame scales
+            // into the growing box (upstream scales its whole buffer so)
+            const bool ANIMATING_IN = pWindow->presentation().animatingIn();
+            const auto SPAN         = ANIMATING_IN ? GEOMETRY.size() : projSizeUnscaled;
+            const auto RANGE        = uvBR - uvTL;
+            uvBR                    = uvTL + (GEOMETRY.pos() + SPAN) / SURFSIZE * RANGE;
+            uvTL                    = uvTL + GEOMETRY.pos() / SURFSIZE * RANGE;
+
+            // a client drawing a texel per pixel (fractional scale): start on
+            // a whole texel and span exactly the box's pixels — a 45px margin
+            // at 1.25x starts at texel 56.25 and would resample every texel
+            // between two. Already aligned (integer scales) is a no-op.
+            const auto BUF = pSurface->m_current.bufferSize;
+            if (!ANIMATING_IN && pSurface->m_current.transform == WL_OUTPUT_TRANSFORM_NORMAL && BUF.x > 0 && BUF.y > 0 &&
+                DELTALESSTHAN((uvBR.x - uvTL.x) * BUF.x, projSize.x, 3) && DELTALESSTHAN((uvBR.y - uvTL.y) * BUF.y, projSize.y, 3)) {
+                uvTL = (uvTL * BUF).round() / BUF;
+                uvBR = uvTL + projSize / BUF;
+            }
+        } else if (projSize != Vector2D{} && fixMisalignedFSV1) {
             // instead of nearest_neighbor (we will repeat / skip)
             // just cut off / expand surface
             const Vector2D PIXELASUV   = Vector2D{1, 1} / pSurface->m_current.bufferSize;
