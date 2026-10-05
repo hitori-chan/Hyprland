@@ -288,12 +288,16 @@ void CInputManager::mouseMoveUnified(uint32_t time, bool refocus, bool mouse, st
     const auto             FOCUS_REASON = refocus ? Desktop::FOCUS_REASON_CLICK : Desktop::FOCUS_REASON_FFM;
 
     if (!pointerOnly) {
+        // recorded before the emit: a claimed motion still moved the pointer
+        // (the dedup above must compare against where it is, or a return to
+        // the last UNCLAIMED pixel is dropped and the claimant never hears
+        // the pointer leave), and a listener's simulateMouseMovement() must
+        // keep the resend it forces
+        m_lastCursorPosFloored = MOUSECOORDSFLOORED;
         Event::SCallbackInfo info;
         Event::bus()->m_events.input.mouse.move.emit(MOUSECOORDSFLOORED, info);
         if (info.cancelled)
             return;
-
-        m_lastCursorPosFloored = MOUSECOORDSFLOORED;
     }
 
     // use mouseCoords specifically in case touch sent overridePos, otherwise touch doesn't work on non-focused monitor
