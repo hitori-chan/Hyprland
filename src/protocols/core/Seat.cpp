@@ -139,8 +139,12 @@ CWLPointerResource::CWLPointerResource(SP<CWlPointer> resource_, SP<CWLSeatResou
 
     auto surface = g_pSeatManager->m_state.pointerFocus.lock();
 
-    if (surface && surface->client() == m_resource->client())
-        sendEnter(surface, {-1, -1});
+    // a pointer bound while its client has the focus (a device re-added
+    // after resume) enters where the client's other pointers last heard
+    if (surface && surface->client() == m_resource->client()) {
+        sendEnter(surface, g_pSeatManager->lastPointerLocal());
+        sendFrame();
+    }
 }
 
 CWLPointerResource::~CWLPointerResource() {
