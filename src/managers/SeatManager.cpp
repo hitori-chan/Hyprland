@@ -866,6 +866,18 @@ void CSeatManager::setGrab(SP<CSeatGrab> grab) {
     refocusGrab();
 }
 
+Vector2D CSeatManager::pointerFocusLocal() const {
+    const auto SURF   = m_state.pointerFocus.lock();
+    const auto HLSURF = SURF ? Desktop::View::CWLSurface::fromResource(SURF) : nullptr;
+    const auto BOX    = HLSURF ? HLSURF->getSurfaceBoxGlobal() : std::nullopt;
+    if (!BOX)
+        return m_lastLocalCoords;
+
+    const auto LOCAL  = g_pInputManager->getMouseCoordsInternal() - BOX->pos();
+    const auto WINDOW = Desktop::View::CWindow::fromView(HLSURF->view());
+    return WINDOW && WINDOW->backend().isX11() ? WINDOW->backend().surfaceLocalToBuffer(LOCAL) : LOCAL;
+}
+
 void CSeatManager::resendEnterEvents() {
     SP<CWLSurfaceResource> kb = m_state.keyboardFocus.lock();
     SP<CWLSurfaceResource> pt = m_state.pointerFocus.lock();
