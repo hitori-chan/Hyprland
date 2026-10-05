@@ -90,10 +90,12 @@ CXDGPopupResource::~CXDGPopupResource() {
     m_events.destroy.emit();
 }
 
+// The positioner solves in window-geometry space: the anchor rect and the
+// result are relative to the parent's window geometry, the size is the
+// popup's, and the constraint area bounds the popup's window geometry
+// (xdg_positioner), so no surface's own geometry offset enters it.
 void CXDGPopupResource::applyPositioning(const CBox& box, const Vector2D& t1coord) {
-    CBox constraint = box.copy().translate(m_surface->m_pending.geometry.pos());
-
-    m_geometry = m_positionerRules.getPosition(constraint, accumulateParentOffset() + t1coord);
+    m_geometry = m_positionerRules.getPosition(box, accumulateParentOffset() + t1coord);
 
     LOG(Log::DEBUG, "Popup {:x} gets unconstrained to {} {}", (uintptr_t)this, m_geometry.pos(), m_geometry.size());
 
@@ -103,16 +105,15 @@ void CXDGPopupResource::applyPositioning(const CBox& box, const Vector2D& t1coor
         repositioned();
 }
 
+// the parent's window-geometry origin relative to the root's (t1coord, the
+// toplevel's box: its content frame): each ancestor popup sits relative to
+// its own parent's window geometry
 Vector2D CXDGPopupResource::accumulateParentOffset() {
     SP<CXDGSurfaceResource> current = m_parent.lock();
     Vector2D                off;
-    while (current) {
-        off += current->m_current.geometry.pos();
-        if (current->m_popup) {
-            off += current->m_popup->m_geometry.pos();
-            current = current->m_popup->m_parent.lock();
-        } else
-            break;
+    while (current && current->m_popup) {
+        off += current->m_popup->m_geometry.pos();
+        current = current->m_popup->m_parent.lock();
     }
     return off;
 }
