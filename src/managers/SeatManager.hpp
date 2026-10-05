@@ -103,6 +103,9 @@ class CSeatManager {
     void                       sendTouchOrientation(int32_t id, double angle);
 
     void                       resendEnterEvents();
+    // the surface-local position last sent to the pointer focus (enter or
+    // motion): where a newly bound wl_pointer of that client enters
+    Vector2D                   pointerFocusLocal() const;
 
     uint32_t                   nextSerial(SP<CWLSeatResource> seatResource, bool enter = false);
     // pops the serial if it was valid, meaning it is consumed.

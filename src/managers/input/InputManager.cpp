@@ -1952,8 +1952,16 @@ void CInputManager::updateCapabilities() {
         caps |= h->getCapabilities();
     }
 
+    const bool POINTERBACK = (caps & HID_INPUT_CAPABILITY_POINTER) && !(m_capabilities & HID_INPUT_CAPABILITY_POINTER);
+
     g_pSeatManager->updateCapabilities(caps);
     m_capabilities = caps;
+
+    // with no pointer the seat refused every pointer focus: the focus went
+    // stale, and so did the surface-local position a client binding its
+    // new wl_pointer enters at. Refocus where the cursor is.
+    if (POINTERBACK)
+        simulateMouseMovement();
 }
 
 const std::vector<uint32_t>& CInputManager::getKeysFromAllKBs() {

@@ -394,6 +394,7 @@ void CSeatManager::setPointerFocus(SP<CWLSurfaceResource> surf, const Vector2D& 
         SURF->constraint()->activate();
 
     m_state.dndPointerFocus = surf;
+    m_lastLocalCoords       = local;
 
     auto client = surf->client();
     for (auto const& r : m_seatResources | std::views::reverse) {
@@ -860,6 +861,10 @@ void CSeatManager::setGrab(SP<CSeatGrab> grab) {
     m_seatGrab = grab;
 
     refocusGrab();
+}
+
+Vector2D CSeatManager::pointerFocusLocal() const {
+    return m_lastLocalCoords;
 }
 
 void CSeatManager::resendEnterEvents() {
