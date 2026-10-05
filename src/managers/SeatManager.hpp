@@ -103,6 +103,9 @@ class CSeatManager {
     void                       sendTouchOrientation(int32_t id, double angle);
 
     void                       resendEnterEvents();
+    Vector2D                   lastPointerLocal() const {
+        return m_lastLocalCoords;
+    }
 
     uint32_t                   nextSerial(SP<CWLSeatResource> seatResource, bool enter = false);
     // pops the serial if it was valid, meaning it is consumed.
