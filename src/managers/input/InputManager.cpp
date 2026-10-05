@@ -1913,8 +1913,15 @@ void CInputManager::updateCapabilities() {
         caps |= h->getCapabilities();
     }
 
+    const bool POINTERBACK = (caps & HID_INPUT_CAPABILITY_POINTER) && !(m_capabilities & HID_INPUT_CAPABILITY_POINTER);
+
     g_pSeatManager->updateCapabilities(caps);
     m_capabilities = caps;
+
+    // with no pointer the seat refused every pointer focus, so the focus
+    // went stale: refocus the pointer (only) where the cursor is
+    if (POINTERBACK)
+        refocusPointer();
 }
 
 const std::vector<uint32_t>& CInputManager::getKeysFromAllKBs() {
