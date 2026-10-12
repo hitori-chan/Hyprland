@@ -170,7 +170,6 @@ class CXDGToplevelResource {
     UP<SEventLoopDoLaterLock> m_stateUpdate;
 
     void                      scheduleStateApplication();
-    bool                      shouldIgnoreInitialMaximizeds() const;
 };
 
 class CXDGSurfaceRole : public ISurfaceRole {
