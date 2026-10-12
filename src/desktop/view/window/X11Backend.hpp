@@ -35,6 +35,7 @@ namespace Desktop::View {
 
         void                   configure(const CBox& logicalBox, PHLMONITOR preferredMonitor, bool force = false) override;
         void                   acknowledgeConfigure(const CBox& clientBox) override;
+        void                   requestClientSize() override;
         void                   setActive(bool active) override;
         void                   setFullscreen(bool fullscreen) override;
         void                   setMaximized(bool maximized) override;
