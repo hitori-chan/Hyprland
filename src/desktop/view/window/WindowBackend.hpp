@@ -90,6 +90,7 @@ namespace Desktop::View {
         void                    add(uint32_t serial, const Vector2D& size);
         std::optional<Vector2D> acknowledge(uint32_t serial);
         bool                    empty() const;
+        void                    clear();
 
       private:
         std::vector<std::pair<uint32_t, Vector2D>> m_pending;
@@ -123,6 +124,7 @@ namespace Desktop::View {
 
         virtual void                   configure(const CBox& logicalBox, PHLMONITOR preferredMonitor, bool force = false) = 0;
         virtual void                   acknowledgeConfigure(const CBox& clientBox)                                        = 0;
+        virtual void                   requestClientSize()                                                                = 0;
         virtual void                   setActive(bool active)                                                             = 0;
         virtual void                   setFullscreen(bool fullscreen)                                                     = 0;
         virtual void                   setMaximized(bool maximized)                                                       = 0;
@@ -150,6 +152,13 @@ namespace Desktop::View {
             CSignalT<>                       pong;
             CSignalT<SP<IPopupBackend>>      newPopup;
         } m_events;
+
+        // a 0x0 configure handing the client its size choice, and its ack:
+        // the window adopts the answering commit
+        struct {
+            uint32_t serial = 0;
+            bool     acked  = false;
+        } m_clientSizeGrant;
 
         IWindowBackend(const IWindowBackend&)            = delete;
         IWindowBackend(IWindowBackend&&)                 = delete;
