@@ -62,6 +62,7 @@
 #include "../../../pointer/PointerController.hpp"
 #include "../../../managers/fullscreen/FullscreenController.hpp"
 #include "../../../layout/algorithm/Algorithm.hpp"
+#include "../../../layout/algorithm/FloatingAlgorithm.hpp"
 #include "../../../layout/space/Space.hpp"
 #include "../../../layout/LayoutManager.hpp"
 #include "../../../layout/target/WindowTarget.hpp"
@@ -857,6 +858,15 @@ void CWindow::activate(bool force) {
     warpCursor();
 }
 
+void CWindow::cancelClientSize() {
+    m_bornFullscreen = false;
+    if (!m_backend->m_clientSizeGrant.serial)
+        return;
+
+    m_backend->m_clientSizeGrant = {};
+    sendWindowSize();
+}
+
 void CWindow::onUpdateState(const SBackendStateRequest& request) {
     requestClientFullscreen({
         .fullscreen        = request.fullscreen,
@@ -1570,6 +1580,12 @@ void CWindow::mapWindow() {
             Fullscreen::controller()->setFullscreenMode(m_self.lock(), requestedInternalFSMode, requestedClientFSMode, wasFullscreenLayoutHandled);
     }
 
+    // a float that maps straight into fullscreen or maximize has no windowed
+    // frame on record (only an effective mode counts: a request stripped to
+    // none, or skipped for a window mapped without focus, maps windowed)
+    if (isFloating() && Fullscreen::controller()->isFullscreen(m_self.lock()))
+        m_bornFullscreen = true;
+
     // recheck idle inhibitors
     g_pInputManager->recheckIdleInhibitorStatus();
 
@@ -1664,6 +1680,11 @@ void CWindow::unmapWindow() {
         LOG(Log::WARN, "{} unmapped without being mapped??", m_self.lock());
         return;
     }
+
+    // a re-map is a new presentation: nothing about this one carries over
+    m_bornFullscreen             = false;
+    m_everWindowed               = false;
+    m_backend->m_clientSizeGrant = {};
 
     const auto PMONITOR = m_monitor.lock();
 
@@ -1834,7 +1855,41 @@ void CWindow::commitWindow(bool initialCommit) {
         return;
 
     if (!m_backend->isX11() && !Fullscreen::controller()->isFullscreen(m_self.lock()) && m_target->floating()) {
-        const auto HINTS = m_backend->geometryHints(eBackendState::BACKEND_STATE_CURRENT);
+        const auto HINTS     = m_backend->geometryHints(eBackendState::BACKEND_STATE_CURRENT);
+        const bool HAS_HINTS = HINTS.minSize.has_value() && HINTS.maxSize.has_value();
+        const auto MINSIZE   = HINTS.minSize.value_or(Vector2D{});
+        const auto MAXSIZE   = HINTS.maxSize.value_or(Vector2D{});
+        const auto GEOMBOX   = m_backend->geometry().box;
+        const auto CONTENT   = (GEOMBOX.w > 5 && GEOMBOX.h > 5) ? GEOMBOX.size() : m_wlSurface->resource()->m_current.size;
+        // a size pinned at the client's own minimum (min != max, so not a
+        // fixed-size window) is no real opinion: GTK's normal-size memory
+        // doesn't survive a born-maximized startup
+        const auto PINNED = [&](const Vector2D& size) { return HAS_HINTS && size.x <= MINSIZE.x + 1 && size.y <= MINSIZE.y + 1 && MINSIZE != MAXSIZE; };
+        auto&      GRANT  = m_backend->m_clientSizeGrant;
+
+        if (GRANT.serial && GRANT.acked) {
+            // the client answered our 0x0 configure: adopt the size it chose,
+            // keeping the window centered where it was
+            auto size = HAS_HINTS ? CONTENT.clamp(MINSIZE, MAXSIZE) : CONTENT;
+            if (size.x > 5 && size.y > 5) {
+                GRANT = {};
+                if (PINNED(size))
+                    size = Layout::FLOATING_DEFAULT_SIZE;
+
+                const auto CENTER = position(GEOMETRIC_GOAL) + this->size(GEOMETRIC_GOAL) / 2.F;
+                g_layoutManager->setTargetGeom(CBox{CENTER - size / 2.F, size}, layoutTarget());
+                layoutTarget()->rememberFloatingSize(size);
+                // this commit is the client's frame at that size: show it now,
+                // not a configure roundtrip (or the transaction's timeout) later
+                if (size == CONTENT && m_pendingGeometry)
+                    flushPendingGeometry();
+            }
+        }
+
+        // placeholder frames don't count as a windowed presentation
+        if (!m_everWindowed && CONTENT.x > 5 && CONTENT.y > 5 && !PINNED(CONTENT))
+            m_everWindowed = true;
+
         if (clampWindowSize(HINTS.minSize, HINTS.maxSize))
             g_pHyprRenderer->damageWindow(m_self.lock());
     }
