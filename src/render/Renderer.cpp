@@ -723,19 +723,24 @@ void IHyprRenderer::renderWindow(CRenderContext& ctx, PHLWINDOW pWindow, PHLMONI
             renderdata.blur = false;
         }
 
+        // subsurface offsets are relative to the main buffer's origin, which
+        // sits at the box origin minus the xdg geometry offset (the main
+        // surface itself is cropped to the box in calculateUVForSurface)
+        const auto GEOMETRY_OFFSET = pWindow->contentOffset();
+
         renderdata.surfaceCounter = 0;
         pWindow->wlSurface()->resource()->breadthfirst(
-            [this, &ctx, &renderdata, &pWindow](SP<CWLSurfaceResource> s, const Vector2D& offset, void* data) {
+            [this, &ctx, &renderdata, &pWindow, &GEOMETRY_OFFSET](SP<CWLSurfaceResource> s, const Vector2D& offset, void* data) {
                 if (!s->m_current.texture)
                     return;
 
                 if (s->m_current.size.x < 1 || s->m_current.size.y < 1)
                     return;
 
-                renderdata.localPos    = offset;
+                renderdata.mainSurface = s == pWindow->wlSurface()->resource();
+                renderdata.localPos    = renderdata.mainSurface ? offset : offset - GEOMETRY_OFFSET;
                 renderdata.texture     = s->m_current.texture;
                 renderdata.surface     = s;
-                renderdata.mainSurface = s == pWindow->wlSurface()->resource();
                 addPassElement(ctx, makeUnique<CSurfacePassElement>(renderdata));
                 renderdata.surfaceCounter++;
             },
@@ -795,9 +800,8 @@ void IHyprRenderer::renderWindow(CRenderContext& ctx, PHLWINDOW pWindow, PHLMONI
 
     if (mode == RENDER_PASS_ALL || mode == RENDER_PASS_POPUP) {
         if (!pWindow->backend().isX11()) {
-            const auto GEOM = pWindow->backend().geometry().box;
-
-            renderdata.pos -= GEOM.pos();
+            // popups sit relative to the parent's window geometry, which is
+            // the box itself (the content frame): no geometry offset here
             renderdata.dontRound       = true; // don't round popups
             renderdata.pMonitor        = pMonitor;
             renderdata.squishOversized = false; // don't squish popups
