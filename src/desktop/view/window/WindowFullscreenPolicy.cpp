@@ -47,22 +47,6 @@ SPendingClientFullscreenRequest CWindowFullscreenPolicy::consumePendingClientReq
     return request;
 }
 
-void CWindowFullscreenPolicy::expectMaximizeEcho() {
-    m_expectsMaximizeEcho = true;
-}
-
-void CWindowFullscreenPolicy::clearExpectedMaximizeEcho() {
-    m_expectsMaximizeEcho = false;
-}
-
-bool CWindowFullscreenPolicy::consumeExpectedMaximizeEcho(bool maximized) {
-    if (!m_expectsMaximizeEcho)
-        return false;
-
-    m_expectsMaximizeEcho = false;
-    return maximized;
-}
-
 bool CWindowFullscreenPolicy::pinFullscreened() const {
     return m_pinFullscreened;
 }
