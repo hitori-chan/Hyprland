@@ -134,8 +134,19 @@ void IFullscreenHandler::setTargetFullscreenModeInternal(const SP<Layout::ITarge
 
     const auto ITR = m_fsTargets.find(target);
 
-    if (target->window() && target->window()->isFloating() && mode != FSMODE_NONE && !isFullscreen(target))
-        target->rememberFloatingSize(target->position().size());
+    if (target->window() && target->window()->isFloating() && mode != FSMODE_NONE && !isFullscreen(target)) {
+        // no usable windowed geometry stated and no windowed frame shown
+        // (GTK maps a 1x1 placeholder, then asks): nothing to restore
+        if (!target->desiredGeometry() && !target->window()->m_everWindowed)
+            target->window()->m_bornFullscreen = true;
+
+        // an in-flight size grant is void: its ack would make the next exit
+        // adopt a fullscreen-size frame, and the box is no real frame either
+        auto& GRANT = target->window()->backend().m_clientSizeGrant;
+        if (!GRANT.serial)
+            target->rememberFloatingSize(target->position().size());
+        GRANT = {};
+    }
 
     if (mode == FSMODE_NONE) {
         if (ITR != m_fsTargets.end())
