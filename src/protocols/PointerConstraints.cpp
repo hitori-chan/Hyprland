@@ -149,7 +149,8 @@ CRegion CPointerConstraint::logicConstraintRegion() {
 
     // if region wasn't set in pointer-constraints request take surface region
     if (rg.empty() && SURFBOX.has_value()) {
-        rg.set(SURFBOX.value());
+        const auto WINDOW = Desktop::View::CWindow::fromView(m_hlSurface->view());
+        rg.set(WINDOW ? WINDOW->getWindowMainSurfaceBox() : SURFBOX.value());
         return rg;
     }
 

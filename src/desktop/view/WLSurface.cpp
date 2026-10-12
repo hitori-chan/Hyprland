@@ -101,6 +101,17 @@ CRegion CWLSurface::computeDamage(const std::optional<CBox>& box) const {
             return {};
     }
 
+    // a window's damage lands in its box: buffer coords less the content
+    // offset, clipped to the frame (the CSD margin is cropped)
+    Vector2D            geometryOffset;
+    std::optional<CBox> contentFrame; // the visible part: the margin is cropped
+    if (m_view && m_view->type() == VIEW_TYPE_WINDOW)
+        if (const auto WINDOW = dynamicPointerCast<CWindow>(m_view.lock()); WINDOW) {
+            geometryOffset = WINDOW->contentOffset();
+            if (const auto GEOMETRY = WINDOW->backend().geometry().box; !WINDOW->backend().isX11() && GEOMETRY.w > 0 && GEOMETRY.h > 0)
+                contentFrame = CBox{{}, GEOMETRY.size()};
+        }
+
     CRegion damage = m_resource->m_current.accumulateBufferDamage();
     damage.transform(Math::wlTransformToHyprutils(m_resource->m_current.transform), BUFSIZE.x, BUFSIZE.y);
 
@@ -110,6 +121,17 @@ CRegion CWLSurface::computeDamage(const std::optional<CBox>& box) const {
     // Convert buffer damage to logical coordinates
     damage.scale(SURFSIZE / SCALEDSRCSIZE);
 
+    // the content frame's offset: the CSD margin lies outside the box. Both
+    // clips are in the surface's own frame (the box is the surface's size),
+    // before a small surface is centered: after it, they would cut the
+    // centered surface's right and bottom bands out of its damage, and those
+    // would keep old frames
+    damage.translate(-geometryOffset);
+    if (boxSize)
+        Render::clipSurfaceDamage(damage, *boxSize);
+    if (contentFrame)
+        damage.intersect(*contentFrame);
+
     // Center damage within the reported window size
     if (m_view && m_view->type() == VIEW_TYPE_WINDOW && small() && !m_fillIgnoreSmall) {
         const auto WINDOW = dynamicPointerCast<CWindow>(m_view.lock());
@@ -118,9 +140,6 @@ CRegion CWLSurface::computeDamage(const std::optional<CBox>& box) const {
             damage.translate(((REP - SURFSIZE) / 2.0).clamp({}, {INFINITY, INFINITY}));
         }
     }
-
-    if (boxSize)
-        Render::clipSurfaceDamage(damage, *boxSize);
 
     return damage;
 }
@@ -171,7 +190,13 @@ std::optional<CBox> CWLSurface::getSurfaceBoxGlobal() const {
     if (!desktopComponent())
         return {};
 
-    return m_view->surfaceLogicalBox();
+    auto box = m_view->surfaceLogicalBox();
+
+    if (box && m_resource && m_view->type() == VIEW_TYPE_WINDOW)
+        if (const auto WINDOW = dynamicPointerCast<CWindow>(m_view.lock()); WINDOW && !WINDOW->backend().isX11())
+            box = CBox{box->pos() - WINDOW->contentOffset(), m_resource->m_current.size};
+
+    return box;
 }
 
 void CWLSurface::appendConstraint(WP<CPointerConstraint> constraint) {
