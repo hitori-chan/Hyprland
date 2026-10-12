@@ -37,10 +37,6 @@ namespace Desktop::View {
         void                                   clearPendingClientMode(Fullscreen::eFullscreenMode mode);
         SPendingClientFullscreenRequest        consumePendingClientRequest();
 
-        void                                   expectMaximizeEcho();
-        void                                   clearExpectedMaximizeEcho();
-        bool                                   consumeExpectedMaximizeEcho(bool maximized);
-
         bool                                   pinFullscreened() const;
         void                                   setPinFullscreened(bool pinFullscreened);
 
@@ -51,7 +47,6 @@ namespace Desktop::View {
         bool                            m_allowedOverFullscreen = true;
         SFullscreenRequestSuppression   m_requestSuppression;
         SPendingClientFullscreenRequest m_pendingClientRequest;
-        bool                            m_expectsMaximizeEcho    = false;
         bool                            m_pinFullscreened        = false;
         bool                            m_restoreClientMaximized = false;
     };
