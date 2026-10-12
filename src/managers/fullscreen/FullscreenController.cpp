@@ -295,9 +295,6 @@ void CFullscreenController::setFullscreenMode(const PHLWINDOW window, std::optio
     if (!window)
         return;
 
-    if (context == FULLSCREEN_MUTATION_TRANSFER)
-        window->fullscreenPolicy().clearExpectedMaximizeEcho();
-
     const bool WANT_SYNC = context == FULLSCREEN_MUTATION_NORMAL && window->m_ruleApplicator->syncFullscreen().valueOrDefault();
 
     bool       stateChanged = false;
@@ -456,11 +453,6 @@ void CFullscreenController::setWindowFullscreenModeInternal(const PHLWINDOW wind
             setFullscreenMode(COVERING_FS_WINDOW, FSMODE_NONE);
     }
 
-    // Swallow the set_maximized echo clients send after fullscreen exit.
-    if (context == FULLSCREEN_MUTATION_NORMAL && INTERNAL_FS_MODE_CHANGED && !window->isFloating() && (getFullscreenModes(window).internal == FSMODE_FULLSCREEN) &&
-        mode != FSMODE_FULLSCREEN)
-        window->fullscreenPolicy().expectMaximizeEcho();
-
     // Window/Workspace Rules, decorations, etc..
     if (!INTERNAL_FS_MODE_CHANGED) {
         window->m_ruleApplicator->propertiesChanged(Desktop::Rule::RULE_PROP_FULLSCREEN | Desktop::Rule::RULE_PROP_FULLSCREENSTATE_CLIENT |
@@ -515,9 +507,15 @@ void CFullscreenController::setWindowFullscreenModeClient(const PHLWINDOW window
         return;
     }
 
+    const auto WAS_MAXIMIZED = getFullscreenModes(window).client == FSMODE_MAXIMIZED;
+
     FS_HANDLER->setTargetFullscreenModeClient(window->windowTarget(), mode);
 
     window->backend().setFullscreen(mode == FSMODE_FULLSCREEN);
+    // tell a maximize this mode enters or leaves; one held by other means
+    // (a plugin's maximized float) stays as it was told
+    if (WAS_MAXIMIZED != (mode == FSMODE_MAXIMIZED))
+        window->backend().setMaximized(mode == FSMODE_MAXIMIZED);
 }
 
 WP<IFullscreenHandler> CFullscreenController::getFsHandler(const PHLWINDOW window, std::optional<bool> layoutHandled) {
