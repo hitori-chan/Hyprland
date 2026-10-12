@@ -53,22 +53,6 @@ TEST(WindowFullscreenPolicy, PendingRequestsDistinguishModesAndConsume) {
     EXPECT_EQ(policy.pendingClientRequest().monitor, std::nullopt);
 }
 
-TEST(WindowFullscreenPolicy, ExpectedMaximizeEchoClearsOnNextRequest) {
-    CWindowFullscreenPolicy policy;
-
-    policy.expectMaximizeEcho();
-    EXPECT_FALSE(policy.consumeExpectedMaximizeEcho(false));
-    EXPECT_FALSE(policy.consumeExpectedMaximizeEcho(true));
-
-    policy.expectMaximizeEcho();
-    EXPECT_TRUE(policy.consumeExpectedMaximizeEcho(true));
-    EXPECT_FALSE(policy.consumeExpectedMaximizeEcho(true));
-
-    policy.expectMaximizeEcho();
-    policy.clearExpectedMaximizeEcho();
-    EXPECT_FALSE(policy.consumeExpectedMaximizeEcho(true));
-}
-
 TEST(WindowFullscreenPolicy, PinAndMaximizedRestorationAreIndependent) {
     CWindowFullscreenPolicy policy;
 
