@@ -1517,17 +1517,6 @@ static SDispatchResult expectWorkspaceLifecycleState(std::string monitorName) {
     return {};
 }
 
-static SDispatchResult expectNoMaximizeEcho(std::string in) {
-    const auto WINDOW = Desktop::focusState()->window();
-    if (!WINDOW)
-        return {.success = false, .error = "No window"};
-
-    if (WINDOW->fullscreenPolicy().consumeExpectedMaximizeEcho(true))
-        return {.success = false, .error = "Window has a stale maximize echo expectation"};
-
-    return {};
-}
-
 static int luaResult(lua_State* L, const SDispatchResult& result) {
     if (result.success)
         return 0;
@@ -1836,10 +1825,6 @@ static int luaExpectWorkspaceLifecycleState(lua_State* L) {
     return luaResult(L, ::expectWorkspaceLifecycleState(luaL_checkstring(L, 1)));
 }
 
-static int luaExpectNoMaximizeEcho(lua_State* L) {
-    return luaResult(L, ::expectNoMaximizeEcho(""));
-}
-
 APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
     PHANDLE = handle;
 
@@ -1898,7 +1883,6 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
     addLuaFn("window_soft_focus", ::luaSoftFocusWindowByClass);
     addLuaFn("floating_focus_on_fullscreen", ::luaFloatingFocusOnFullscreen);
     addLuaFn("expect_workspace_lifecycle_state", ::luaExpectWorkspaceLifecycleState);
-    addLuaFn("expect_no_maximize_echo", ::luaExpectNoMaximizeEcho);
     WorkspaceGestures::registerFunctions();
     SpecialWorkspaceGestures::registerFunctions();
     XWaylandSelection::registerFunctions();
