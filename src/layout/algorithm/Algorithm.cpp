@@ -107,7 +107,7 @@ void CAlgorithm::recalculate(eRecalculateReason reason) {
 }
 
 void CAlgorithm::recenter(SP<ITarget> t) {
-    if (t->floating())
+    if (t->floating() && !m_floating->respawnIfBornFullscreen(t))
         m_floating->recenter(t);
 }
 

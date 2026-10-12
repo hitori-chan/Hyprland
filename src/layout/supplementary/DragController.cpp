@@ -120,6 +120,10 @@ bool CDragStateController::updateDragWindow() {
         const auto PWORKSPACE     = DRAGGINGTARGET->workspace();
         const auto DRAGGINGWINDOW = DRAGGINGTARGET->window();
 
+        // a drag takes the size choice back from the client
+        if (DRAGGINGWINDOW)
+            DRAGGINGWINDOW->cancelClientSize();
+
         if (Fullscreen::controller()->hasFullscreen(PWORKSPACE) && (!DRAGGINGTARGET->floating() || !DRAGGINGWINDOW->isAllowedOverFullscreen())) {
             LOG(Log::DEBUG, "Rejecting drag on a fullscreen workspace. (window under fullscreen)");
             dragEnd();
