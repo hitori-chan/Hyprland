@@ -382,7 +382,8 @@ void CInputManager::mouseMoveUnified(uint32_t time, bool refocus, bool mouse, st
         if (!pFoundWindow->backend().isX11())
             foundSurface = Desktop::viewState()->hitTest().windowSurfaceAt(mouseCoords, pFoundWindow, surfaceCoords);
         if (!foundSurface) {
-            surfacePos   = pFoundWindow->position(Desktop::View::IGeometric::GEOMETRIC_CURRENT);
+            // the main buffer sits at the box minus the content offset
+            surfacePos   = pFoundWindow->position(Desktop::View::IGeometric::GEOMETRIC_CURRENT) - pFoundWindow->contentOffset();
             foundSurface = pFoundWindow->wlSurface()->resource();
         }
     }
@@ -535,7 +536,7 @@ void CInputManager::mouseMoveUnified(uint32_t time, bool refocus, bool mouse, st
                 foundSurface = Desktop::viewState()->hitTest().windowSurfaceAt(mouseCoords, pFoundWindow, surfaceCoords);
                 if (!foundSurface) {
                     foundSurface = pFoundWindow->wlSurface()->resource();
-                    surfacePos   = pFoundWindow->position(Desktop::View::IGeometric::GEOMETRIC_CURRENT);
+                    surfacePos   = pFoundWindow->position(Desktop::View::IGeometric::GEOMETRIC_CURRENT) - pFoundWindow->contentOffset();
                 }
             } else {
                 foundSurface = pFoundWindow->wlSurface()->resource();
@@ -1006,7 +1007,7 @@ void CInputManager::onMouseWheel(IPointer::SAxisEvent e, SP<IPointer> pointer) {
                     if (*POFFWINDOWAXIS == 3)
                         Pointer::pointerController()->warpTo({TEMPCURX, TEMPCURY}, true);
 
-                    g_pSeatManager->sendPointerMotion(e.timeMs, Vector2D{TEMPCURX, TEMPCURY} - BOX.pos());
+                    g_pSeatManager->sendPointerMotion(e.timeMs, Vector2D{TEMPCURX, TEMPCURY} - BOX.pos() + PWINDOW->contentOffset());
                     g_pSeatManager->sendPointerFrame();
                 }
             }
