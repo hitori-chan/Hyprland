@@ -323,10 +323,7 @@ void CScreenshareFrame::renderMonitor(Render::CRenderContext& ctx) {
         if (w->backend().isX11() || !w->popupHead())
             continue;
 
-        const auto     GEOM            = w->backend().geometry().box;
-        const Vector2D popupBaseOffset = REALPOS - GEOM.pos();
-
-        w->popupHead()->breadthfirst(hidePopups(popupBaseOffset), nullptr);
+        w->popupHead()->breadthfirst(hidePopups(REALPOS), nullptr);
     }
 
     if (m_overlayCursor) {

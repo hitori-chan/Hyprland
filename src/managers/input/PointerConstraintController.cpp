@@ -201,7 +201,8 @@ bool CPointerConstraintController::apply(uint32_t time, const Vector2D& position
     if (RULEWINDOW && !RULEBOX)
         return false;
 
-    const auto REGION  = RULEWINDOW ? CRegion(*RULEBOX) : NATIVE->logicConstraintRegion();
+    // the visible window: the CSD margin around its box is cropped
+    const auto REGION  = RULEWINDOW ? CRegion(RULEWINDOW->getWindowMainSurfaceBox()) : NATIVE->logicConstraintRegion();
     const auto CLOSEST = REGION.closestPoint(position);
 
     // A window rule confines to the window, not to whichever child currently
