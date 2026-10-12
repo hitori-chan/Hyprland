@@ -73,7 +73,7 @@ static void refocusTablet(SP<CTablet> tab, SP<CTabletTool> tool, bool motion = f
 
         // yes, this technically ignores any regions set by the app. Too bad!
         if (WINDOW)
-            local = tool->m_absolutePos * WINDOW->size(Desktop::View::IGeometric::GEOMETRIC_GOAL);
+            local = tool->m_absolutePos * WINDOW->size(Desktop::View::IGeometric::GEOMETRIC_GOAL) + WINDOW->contentOffset();
         else
             local = tool->m_absolutePos * BOX->size();
 
