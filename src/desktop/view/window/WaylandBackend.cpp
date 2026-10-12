@@ -299,11 +299,36 @@ void CWaylandBackend::configure(const CBox& logicalBox, PHLMONITOR preferredMoni
         return;
 
     const auto CLIENT_SIZE = logicalToClient(logicalBox, preferredMonitor).size().floor();
+
+    // while the client owns the size choice, the 0x0 configure stays the
+    // last word until its answer is adopted. Nothing reported: the next
+    // real size must not dedupe away. No second 0x0 either: a floating
+    // setBox configures on every move, and each fresh serial would push the
+    // adoption back
+    const auto WINDOW = m_window.lock();
+    if (m_clientSizeGrant.serial && WINDOW && WINDOW->isFloating() && !Fullscreen::controller()->isFullscreen(WINDOW)) {
+        m_pendingReportedSize.reset();
+        return;
+    }
+
     if (!force && m_pendingReportedSize == CLIENT_SIZE)
         return;
 
     m_pendingReportedSize = CLIENT_SIZE;
     m_configureAcks.add(TOPLEVEL->setSize(CLIENT_SIZE), CLIENT_SIZE);
+}
+
+void CWaylandBackend::requestClientSize() {
+    const auto RESOURCE = m_resource.lock();
+    const auto TOPLEVEL = RESOURCE ? RESOURCE->m_toplevel.lock() : nullptr;
+    if (!TOPLEVEL)
+        return;
+
+    // configures the compositor sent before this are obsolete: their acks
+    // must not overwrite the size the client is about to choose.
+    m_configureAcks.clear();
+    m_pendingReportedSize.reset();
+    m_clientSizeGrant = {.serial = TOPLEVEL->setSize({})};
 }
 
 void CWaylandBackend::acknowledgeConfigure(const CBox& clientBox) {
@@ -425,6 +450,14 @@ void CWaylandBackend::updateTraits(bool emitEvent) {
 }
 
 void CWaylandBackend::onAck(uint32_t serial) {
+    if (m_clientSizeGrant.serial && serial >= m_clientSizeGrant.serial) {
+        // the client acked our 0x0 configure: its next commit carries the size
+        // it chose for itself, against no size of ours
+        m_clientSizeGrant.acked = true;
+        acknowledgeConfigure(CBox{});
+        return;
+    }
+
     const auto ACKED_SIZE = m_configureAcks.acknowledge(serial);
     if (!ACKED_SIZE)
         return;
