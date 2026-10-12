@@ -253,6 +253,21 @@ namespace Desktop::View {
         bool                isFloating() const;
         void                sendClose();
         void                requestClientFullscreen(const SClientFullscreenRequest& request);
+        void                requestClientSize();
+        // take the size choice back: drop an in-flight 0x0 grant (and a
+        // born-fullscreen one not yet made) and tell the client its box
+        void cancelClientSize();
+
+        // born-fullscreen tracking: a floating window that maps straight into
+        // fullscreen has no real windowed frame on record; when it exits, ask
+        // the client for its size (0x0 configure) and adopt the answer
+        // (m_sizeFromClientSerial/Acked latch the in-flight grant, see
+        // commitWindow + CWaylandBackend::onAck). Accessed directly from the
+        // layout + fullscreen layers.
+        bool                m_bornFullscreen       = false;
+        bool                m_everWindowed         = false;
+        uint32_t            m_sizeFromClientSerial = 0;
+        bool                m_sizeFromClientAcked  = false;
 
         CBox                getWindowMainSurfaceBox() const {
             return geometricBox(GEOMETRIC_CURRENT);
