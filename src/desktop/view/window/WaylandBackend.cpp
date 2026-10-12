@@ -9,6 +9,7 @@
 #include "../../../protocols/core/Compositor.hpp"
 #include "managers/fullscreen/FullscreenController.hpp"
 #include "managers/fullscreen/FullscreenTypes.hpp"
+#include "../../../layout/LayoutManager.hpp"
 
 using namespace Desktop::View;
 
@@ -301,11 +302,46 @@ void CWaylandBackend::configure(const CBox& logicalBox, PHLMONITOR preferredMoni
         return;
 
     const auto CLIENT_BOX = logicalToClient(logicalBox, preferredMonitor);
+
+    // while the client owns the size choice, don't dictate one: the 0x0
+    // configure requestClientSize() sent stays the last word until its
+    // answering commit is adopted. An interactive drag takes the ownership
+    // back.
+    const auto WINDOW = m_window.lock();
+    if (WINDOW && WINDOW->m_sizeFromClientSerial && WINDOW->isFloating() && !Fullscreen::controller()->isFullscreen(WINDOW)) {
+        const auto DRAGTARGET = g_layoutManager->dragController()->target();
+        if (DRAGTARGET && DRAGTARGET->window() && DRAGTARGET->window() == WINDOW) {
+            WINDOW->m_sizeFromClientSerial = 0;
+            WINDOW->m_sizeFromClientAcked  = false;
+        } else {
+            // nothing reported: the next real size must not dedupe away. No
+            // second 0x0 either: a floating setBox configures on every move,
+            // and each fresh serial would push the adoption back
+            m_pendingReportedSize.reset();
+            return;
+        }
+    }
+
     if (!force && m_pendingReportedSize == CLIENT_BOX.size())
         return;
 
     m_pendingReportedSize = CLIENT_BOX.size();
     m_configureAcks.add(TOPLEVEL->setSize(CLIENT_BOX.size()), CLIENT_BOX.size().floor());
+}
+
+void CWaylandBackend::requestClientSize() {
+    const auto RESOURCE = m_resource.lock();
+    const auto TOPLEVEL = RESOURCE ? RESOURCE->m_toplevel.lock() : nullptr;
+    const auto WINDOW   = m_window.lock();
+    if (!TOPLEVEL || !WINDOW)
+        return;
+
+    // configures the compositor sent before this are obsolete: their acks
+    // must not overwrite the size the client is about to choose.
+    m_configureAcks.clear();
+    m_pendingReportedSize.reset();
+    WINDOW->m_sizeFromClientAcked  = false;
+    WINDOW->m_sizeFromClientSerial = TOPLEVEL->setSize({});
 }
 
 void CWaylandBackend::acknowledgeConfigure(const CBox& clientBox) {
@@ -427,6 +463,15 @@ void CWaylandBackend::updateTraits(bool emitEvent) {
 }
 
 void CWaylandBackend::onAck(uint32_t serial) {
+    const auto WINDOW = m_window.lock();
+    if (WINDOW && WINDOW->m_sizeFromClientSerial && serial >= WINDOW->m_sizeFromClientSerial) {
+        // the client acked our 0x0 configure: its next commit carries the size
+        // it chose for itself, against no size of ours
+        WINDOW->m_sizeFromClientAcked = true;
+        acknowledgeConfigure(CBox{});
+        return;
+    }
+
     const auto ACKED_SIZE = m_configureAcks.acknowledge(serial);
     if (!ACKED_SIZE)
         return;
