@@ -259,6 +259,10 @@ namespace Desktop::View {
             return geometricBox(GEOMETRIC_CURRENT);
         }
 
+        // the content frame's offset inside the main buffer: the buffer's
+        // origin sits at the box origin minus this (zero for X11)
+        Vector2D                                     contentOffset() const;
+
         std::unordered_map<std::string, std::string> getEnv();
 
         //

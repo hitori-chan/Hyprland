@@ -764,7 +764,7 @@ void IHyprRenderer::renderWindow(CRenderContext& ctx, PHLWINDOW pWindow, PHLMONI
                 if (s->m_current.size.x < 1 || s->m_current.size.y < 1)
                     return;
 
-                renderdata.localPos    = offset;
+                renderdata.localPos    = s == pWindow->wlSurface()->resource() ? offset : offset - pWindow->contentOffset();
                 renderdata.texture     = s->m_current.texture;
                 renderdata.surface     = s;
                 renderdata.mainSurface = s == pWindow->wlSurface()->resource();
@@ -827,9 +827,6 @@ void IHyprRenderer::renderWindow(CRenderContext& ctx, PHLWINDOW pWindow, PHLMONI
 
     if (mode == RENDER_PASS_ALL || mode == RENDER_PASS_POPUP) {
         if (!pWindow->backend().isX11()) {
-            const auto GEOM = pWindow->backend().geometry().box;
-
-            renderdata.pos -= GEOM.pos();
             renderdata.dontRound       = true; // don't round popups
             renderdata.pMonitor        = pMonitor;
             renderdata.squishOversized = false; // don't squish popups
@@ -3550,7 +3547,7 @@ SP<IFramebuffer> IHyprRenderer::makeSnapshotFB(WP<Desktop::View::CPopup> popup, 
     if (WORKSPACE) {
         renderdata.workspacePresentation = WINDOW->presentation().renderPresentation(mode);
         // coordsGlobal() contains the raw window position, without workspace offsets.
-        renderdata.pos += renderdata.workspacePresentation.floatingOffset - WINDOW->backend().geometry().box.pos();
+        renderdata.pos += renderdata.workspacePresentation.floatingOffset;
         renderdata.alpha              = WINDOW->m_ruleApplicator->opaque().valueOrDefault() ? 1.F : renderdata.workspacePresentation.alpha;
         renderdata.fadeAlpha          = renderdata.workspacePresentation.fadeAlpha;
         renderdata.pWindow            = WINDOW;

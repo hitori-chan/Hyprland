@@ -126,6 +126,14 @@ CRegion CSurfacePassElement::opaqueRegion(Render::CRenderContext& ctx) {
     if (ALPHA < 1.F)
         return {};
 
+    // a cropped main surface (CSD): only its box shows, 1:1
+    if (m_data.surface && m_data.mainSurface && m_data.pWindow && m_data.pWindow->contentOffset() != Vector2D{}) {
+        CRegion opaqueSurf = m_data.surface->m_current.opaque.copy().translate(-m_data.pWindow->contentOffset()).intersect(CBox{{}, {m_data.w, m_data.h}});
+        if (getTexBox().size() != Vector2D{m_data.w, m_data.h})
+            return {}; // stretched or centered: not 1:1, cull nothing
+        return opaqueSurf.translate(m_data.pos + m_data.localPos - m_data.pMonitor->m_position).expand(-m_data.rounding);
+    }
+
     if (m_data.surface && m_data.surface->m_current.size == Vector2D{m_data.w, m_data.h}) {
         CRegion    opaqueSurf = m_data.surface->m_current.opaque.copy().intersect(CBox{{}, {m_data.w, m_data.h}});
         const auto texBox     = getTexBox();
