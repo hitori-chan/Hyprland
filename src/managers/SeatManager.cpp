@@ -11,6 +11,7 @@
 #include "../desktop/state/FocusState.hpp"
 #include "../devices/IKeyboard.hpp"
 #include "../desktop/view/LayerSurface.hpp"
+#include "../desktop/view/window/Window.hpp"
 #include "../managers/input/InputManager.hpp"
 #include "../state/MonitorState.hpp"
 #include "devices/IHID.hpp"
@@ -657,7 +658,10 @@ void CSeatManager::refocusGrab() {
             if (!b.has_value())
                 continue;
 
-            if (!b->containsPoint(MOUSE))
+            // a window's main buffer reaches past its box into the cropped
+            // CSD margin: only the box is on screen
+            const auto WINDOW = Desktop::View::CWindow::fromView(hlSurf->view());
+            if (!(WINDOW && WINDOW->wlSurface() == hlSurf ? WINDOW->getWindowMainSurfaceBox() : *b).containsPoint(MOUSE))
                 continue;
 
             if (m_seatGrab->m_keyboard)

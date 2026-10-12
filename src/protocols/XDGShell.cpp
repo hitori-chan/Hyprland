@@ -110,13 +110,12 @@ void CXDGPopupResource::applyPositioning(const CBox& box, const Vector2D& t1coor
 Vector2D CXDGPopupResource::accumulateParentOffset() {
     SP<CXDGSurfaceResource> current = m_parent.lock();
     Vector2D                off;
-    while (current) {
+    // the root (a toplevel) is placed by t1coord, its box: the content
+    // frame, its geometry offset already inside
+    while (current && current->m_popup) {
         off += current->m_current.geometry.pos();
-        if (current->m_popup) {
-            off += current->m_popup->m_geometry.pos();
-            current = current->m_popup->m_parent.lock();
-        } else
-            break;
+        off += current->m_popup->m_geometry.pos();
+        current = current->m_popup->m_parent.lock();
     }
     return off;
 }
