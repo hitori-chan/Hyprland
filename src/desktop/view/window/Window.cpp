@@ -182,6 +182,10 @@ const IWindowBackend& CWindow::backend() const {
     return *m_backend;
 }
 
+Vector2D CWindow::contentOffset() const {
+    return m_backend && !m_backend->isX11() ? m_backend->geometry().box.pos() : Vector2D{};
+}
+
 CWindowSwallowController& CWindow::swallowing() {
     return *m_swallowing;
 }
@@ -274,11 +278,15 @@ SBoxExtents CWindow::getFullWindowExtents() const {
 
         maxExtents.topLeft.y = std::max(-surfaceExtents.y, maxExtents.topLeft.y);
 
-        if (surfaceExtents.x + surfaceExtents.width > m_wlSurface->resource()->m_current.size.x + maxExtents.bottomRight.x)
-            maxExtents.bottomRight.x = surfaceExtents.x + surfaceExtents.width - m_wlSurface->resource()->m_current.size.x;
+        // popup extents are relative to the box (the content frame), so
+        // overhang is measured against the box, not the CSD buffer
+        const auto BOXSIZE = size(Desktop::View::IGeometric::GEOMETRIC_CURRENT);
 
-        if (surfaceExtents.y + surfaceExtents.height > m_wlSurface->resource()->m_current.size.y + maxExtents.bottomRight.y)
-            maxExtents.bottomRight.y = surfaceExtents.y + surfaceExtents.height - m_wlSurface->resource()->m_current.size.y;
+        if (surfaceExtents.x + surfaceExtents.width > BOXSIZE.x + maxExtents.bottomRight.x)
+            maxExtents.bottomRight.x = surfaceExtents.x + surfaceExtents.width - BOXSIZE.x;
+
+        if (surfaceExtents.y + surfaceExtents.height > BOXSIZE.y + maxExtents.bottomRight.y)
+            maxExtents.bottomRight.y = surfaceExtents.y + surfaceExtents.height - BOXSIZE.y;
     }
 
     return maxExtents;
