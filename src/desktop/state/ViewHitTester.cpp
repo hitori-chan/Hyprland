@@ -281,7 +281,8 @@ SP<CWLSurfaceResource> CViewHitTester::windowSurfaceAt(const Vector2D& pos, PHLW
         return PPOPUP->wlSurface()->resource();
     }
 
-    auto [surf, local] = window->wlSurface()->resource()->at(pos - window->position(Desktop::View::IGeometric::GEOMETRIC_GOAL), true);
+    // the main surface's coords start at the box minus the content offset
+    auto [surf, local] = window->wlSurface()->resource()->at(pos - window->position(Desktop::View::IGeometric::GEOMETRIC_GOAL) + window->contentOffset(), true);
     if (surf) {
         surfaceLocal = local;
         return surf;
@@ -314,7 +315,7 @@ Vector2D CViewHitTester::surfaceLocalAt(const Vector2D& pos, PHLWINDOW window, S
     const CBox GEOMETRY = window->backend().geometry().box;
 
     if (std::get<1>(iterData) == Vector2D{-1337, -1337})
-        return pos - window->position(Desktop::View::IGeometric::GEOMETRIC_GOAL);
+        return pos - window->position(Desktop::View::IGeometric::GEOMETRIC_GOAL) + GEOMETRY.pos();
 
     return pos - window->position(Desktop::View::IGeometric::GEOMETRIC_GOAL) - std::get<1>(iterData) + GEOMETRY.pos();
 }

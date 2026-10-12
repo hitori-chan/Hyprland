@@ -88,7 +88,47 @@ void IElementRenderer::calculateUVForSurface(CRenderContext& ctx, PHLWINDOW pWin
             }
         }
 
-        if (projSize != Vector2D{} && fixMisalignedFSV1) {
+        // The window box is the client's xdg geometry (its content frame);
+        // a CSD client's buffer carries its shadow margin around that. Show
+        // the box-sized region at the geometry origin, 1:1: the margin is
+        // cropped, never padded inside the box or squeezed into it. (The
+        // upstream crop below is disabled because upstream tells every
+        // window maximized, which suppresses the margins this fork allows.)
+        const auto GEOMETRY      = main && pWindow && pSurface == pWindow->wlSurface()->resource() ? pWindow->backend().geometry().box : CBox{};
+        const auto SURFSIZE      = pSurface->m_current.size;
+        const bool GEOMETRY_CROP = GEOMETRY.w > 0 && GEOMETRY.h > 0 && SURFSIZE.x > 0 && SURFSIZE.y > 0 && (GEOMETRY.pos() != Vector2D{} || GEOMETRY.size() != SURFSIZE);
+
+        if (GEOMETRY_CROP) {
+            // while the window animates in, the whole content frame scales
+            // into the growing box (upstream scales its whole buffer so). A
+            // box past the content frame (a grow the client has not answered
+            // yet) stretches the frame: the margin around it is never shown.
+            // Both stay inside the buffer: the geometry may reach past the
+            // main surface (subsurfaces), and edge texels must not smear.
+            const bool ANIMATING_IN = pWindow->presentation().animatingIn();
+            const auto ORIGIN       = GEOMETRY.pos().clamp({}, SURFSIZE);
+            const auto SPAN =
+                (ANIMATING_IN ? GEOMETRY.size() : Vector2D{std::min(projSizeUnscaled.x, GEOMETRY.w), std::min(projSizeUnscaled.y, GEOMETRY.h)}).clamp({}, SURFSIZE - ORIGIN);
+            // the crop is in surface space; the UVs are in the buffer's
+            // untransformed space (the projection applies the transform)
+            CBox CROP = CBox{ORIGIN / SURFSIZE, SPAN / SURFSIZE};
+            if (pSurface->m_current.transform != WL_OUTPUT_TRANSFORM_NORMAL)
+                CROP.transform(Math::wlTransformToHyprutils(Math::invertTransform(pSurface->m_current.transform)), 1.0, 1.0);
+            const auto RANGE = uvBR - uvTL;
+            uvBR             = uvTL + (CROP.pos() + CROP.size()) * RANGE;
+            uvTL             = uvTL + CROP.pos() * RANGE;
+
+            // a client drawing a texel per pixel (fractional scale): start on
+            // a whole texel and span exactly the box's pixels — a 45px margin
+            // at 1.25x starts at texel 56.25 and would resample every texel
+            // between two. Already aligned (integer scales) is a no-op.
+            const auto BUF = pSurface->m_current.bufferSize;
+            if (!ANIMATING_IN && pSurface->m_current.transform == WL_OUTPUT_TRANSFORM_NORMAL && BUF.x > 0 && BUF.y > 0 && DELTALESSTHAN((uvBR.x - uvTL.x) * BUF.x, projSize.x, 3) &&
+                DELTALESSTHAN((uvBR.y - uvTL.y) * BUF.y, projSize.y, 3)) {
+                uvTL = (uvTL * BUF).round() / BUF;
+                uvBR = uvTL + projSize / BUF;
+            }
+        } else if (projSize != Vector2D{} && fixMisalignedFSV1) {
             // instead of nearest_neighbor (we will repeat / skip)
             // just cut off / expand surface
             const Vector2D PIXELASUV   = Vector2D{1, 1} / pSurface->m_current.bufferSize;
