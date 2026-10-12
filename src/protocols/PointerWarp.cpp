@@ -57,7 +57,7 @@ void CPointerWarpProtocol::bindManager(wl_client* client, void* data, uint32_t v
 
         // Allow a margin of 1px on all sides
         surfbox.expand(1);
-        const auto GLOBALPOS = LOCALPOS + surfbox.pos() + Vector2D{1., 1.};
+        const auto GLOBALPOS = LOCALPOS + surfbox.pos() + Vector2D{1., 1.} - (WINDOW ? WINDOW->contentOffset() : Vector2D{});
         if (!surfbox.containsPoint(GLOBALPOS))
             return;
 

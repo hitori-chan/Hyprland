@@ -138,7 +138,13 @@ CRegion CSurfacePassElement::opaqueRegion(Render::CRenderContext& ctx) {
         return {};
     };
 
-    if (m_data.surface && m_data.surface->m_current.size == Vector2D{m_data.w, m_data.h}) {
+    // a cropped main surface (CSD): its content frame shows in the box, 1:1
+    const auto CONTENTOFFSET = m_data.surface && m_data.mainSurface && m_data.pWindow ? m_data.pWindow->contentOffset() : Vector2D{};
+    const bool CROPPED       = CONTENTOFFSET != Vector2D{};
+    if (CROPPED && getTexBox().size() != Vector2D{m_data.w, m_data.h})
+        return {}; // stretched or centered: not 1:1, cull nothing
+
+    if (m_data.surface && (CROPPED || m_data.surface->m_current.size == Vector2D{m_data.w, m_data.h})) {
         if (m_data.w <= 0 || m_data.h <= 0)
             return {};
 
@@ -148,7 +154,7 @@ CRegion CSurfacePassElement::opaqueRegion(Render::CRenderContext& ctx) {
         auto       rects  = m_data.surface->m_current.opaque.getRects();
         size_t     count  = 0;
         for (const auto& rect : rects) {
-            auto box = CBox(rect.x1, rect.y1, rect.x2 - rect.x1, rect.y2 - rect.y1).intersection(CBox{{}, size});
+            auto box = CBox(rect.x1, rect.y1, rect.x2 - rect.x1, rect.y2 - rect.y1).translate(-CONTENTOFFSET).intersection(CBox{{}, size});
             box      = opaqueBox(box.scale(scale).translate(texBox.pos()));
             if (box.empty())
                 continue;
