@@ -191,6 +191,11 @@ namespace Desktop::View {
         // For the noclosefor windowrule
         Time::steady_tp m_closeableSince = Time::steadyNow();
 
+        // a float that mapped into fullscreen or maximize with no windowed
+        // frame on record asks the client for its size when it leaves
+        bool m_bornFullscreen = false;
+        bool m_everWindowed   = false;
+
         // For the list lookup
         bool operator==(const CWindow& rhs) const;
 
@@ -254,6 +259,9 @@ namespace Desktop::View {
         bool                isFloating() const;
         void                sendClose();
         void                requestClientFullscreen(const SClientFullscreenRequest& request);
+        // take the size choice back: drop an in-flight 0x0 grant (and a
+        // born-fullscreen one not yet made) and tell the client its box
+        void                cancelClientSize();
 
         CBox                getWindowMainSurfaceBox() const {
             return geometricBox(GEOMETRIC_CURRENT);
