@@ -255,10 +255,19 @@ CXDGToplevelResource::CXDGToplevelResource(SP<CXdgToplevel> resource_, SP<CXDGSu
         m_events.sizeLimitsChanged.emit();
     });
 
+    // Every maximize request is the client's own: it is told its true
+    // state, so there is no echo to filter, and one made before the first
+    // commit waits for map (the window's pending client request).
     m_resource->setSetMaximized([this](CXdgToplevel* r) {
-        // We send maximized, apps can pong it back.
-        if (shouldIgnoreInitialMaximizeds())
+        // a client already told maximized that asks again is confirming:
+        // it is owed a configure, not a state change (a maximize the
+        // compositor holds by other means would flip into its own)
+        if (std::ranges::find(m_pendingApply.states, XDG_TOPLEVEL_STATE_MAXIMIZED) != m_pendingApply.states.end()) {
+            scheduleStateApplication();
+            if (m_owner)
+                m_owner->scheduleConfigure();
             return;
+        }
 
         m_state.requestsMaximize = true;
         m_events.stateChanged.emit();
@@ -266,10 +275,6 @@ CXDGToplevelResource::CXDGToplevelResource(SP<CXdgToplevel> resource_, SP<CXDGSu
     });
 
     m_resource->setUnsetMaximized([this](CXdgToplevel* r) {
-        // We send maximized, apps can pong it back.
-        if (shouldIgnoreInitialMaximizeds())
-            return;
-
         m_state.requestsMaximize = false;
         m_events.stateChanged.emit();
         m_state.requestsMaximize.reset();
@@ -307,22 +312,6 @@ CXDGToplevelResource::CXDGToplevelResource(SP<CXdgToplevel> resource_, SP<CXDGSu
         auto newp = parentR ? CXDGToplevelResource::fromResource(parentR) : nullptr;
         setNewParent(newp);
     });
-}
-
-bool CXDGToplevelResource::shouldIgnoreInitialMaximizeds() const {
-    if (!m_owner)
-        return true;
-
-    if (m_owner->m_initialCommit)
-        return true;
-
-    if (!m_owner->m_surface)
-        return true;
-
-    if (!m_owner->m_surface->m_mapped)
-        return true;
-
-    return false;
 }
 
 void CXDGToplevelResource::setNewParent(SP<CXDGToplevelResource> newParent) {
@@ -563,10 +552,6 @@ CXDGSurfaceResource::CXDGSurfaceResource(SP<CXdgSurface> resource_, SP<CXDGWMBas
         }
 
         if (m_surface->m_current.texture && !m_mapped) {
-            // this forces apps to not draw CSD.
-            if (m_toplevel)
-                m_toplevel->setMaximized(true);
-
             m_mapped = true;
             m_surface->map();
             m_events.map.emit();
