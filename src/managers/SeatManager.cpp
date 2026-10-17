@@ -13,6 +13,7 @@
 #include "../desktop/view/LayerSurface.hpp"
 #include "../desktop/view/window/Window.hpp"
 #include "../managers/input/InputManager.hpp"
+#include "../managers/SessionLockManager.hpp"
 #include "../state/MonitorState.hpp"
 #include "devices/IHID.hpp"
 #include "wlr-layer-shell-unstable-v1.hpp"
@@ -758,7 +759,7 @@ void CSeatManager::setCurrentPrimarySelection(SP<IDataSource> source) {
 
 void CSeatManager::setGrab(SP<CSeatGrab> grab) {
     // Do not grab when we have a lockscreen - no surface should grab in those cases.
-    if (g_pInputManager->isLocked() && grab)
+    if (grab && g_pSessionLockManager && g_pSessionLockManager->isSessionLocked())
         return;
 
     if (m_seatGrab) {
