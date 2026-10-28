@@ -210,6 +210,7 @@ void CShader::getUniformLocations() {
     m_uniformLocations[SHADER_VIBRANCY_DARKNESS]           = getUniform("vibrancy_darkness");
     m_uniformLocations[SHADER_BRIGHTNESS]                  = getUniform("brightness");
     m_uniformLocations[SHADER_NOISE]                       = getUniform("noise");
+    m_uniformLocations[SHADER_HIGHLIGHTS]                  = getUniform("highlights");
     m_uniformLocations[SHADER_GLASS_REFRACTION]            = getUniform("glassRefraction");
     m_uniformLocations[SHADER_GLASS_SIZE]                  = getUniform("glassSize");
     m_uniformLocations[SHADER_GLASS_ROUGHNESS]             = getUniform("glassRoughness");
