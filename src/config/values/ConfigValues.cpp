@@ -265,6 +265,8 @@ std::vector<SP<IValue>> Values::getConfigValues() {
         MS<Float>("decoration:blur:noise", "how much noise to apply.", 0.0117, {.min = 0, .max = 1, .refresh = Supplementary::REFRESH_BLUR_FB}),
         MS<Float>("decoration:blur:contrast", "contrast modulation for blur.", 0.8916, {.min = 0, .max = 2, .refresh = Supplementary::REFRESH_BLUR_FB}),
         MS<Float>("decoration:blur:brightness", "brightness modulation for blur.", 1, {.min = 0, .max = 2, .refresh = Supplementary::REFRESH_BLUR_FB}),
+        MS<Float>("decoration:blur:highlights", "the luminance the blur's highlights roll off toward, its shadows kept. 0 disables.", 0,
+                  {.min = 0, .max = 1, .refresh = Supplementary::REFRESH_BLUR_FB}),
         MS<Float>("decoration:blur:vibrancy", "Increase saturation of blurred colors.", 0.1696, {.min = 0, .max = 1, .refresh = Supplementary::REFRESH_BLUR_FB}),
         MS<Float>("decoration:blur:vibrancy_darkness", "How strong the effect of vibrancy is on dark areas.", 0, {.min = 0, .max = 1, .refresh = Supplementary::REFRESH_BLUR_FB}),
         MS<Bool>("decoration:blur:special", "whether to blur behind the special workspace (note: expensive)", false, {.refresh = Supplementary::REFRESH_BLUR_FB}),
