@@ -2199,12 +2199,13 @@ void CHyprOpenGLImpl::renderBorder(CRenderContext& ctx, const CBox& box, const C
 }
 
 void CHyprOpenGLImpl::renderRoundedShadow(CRenderContext& ctx, const CBox& box, int round, float roundingPower, int range, const Config::CGradientValueData& grad, float a,
-                                          const Render::SWindowRenderPresentation& presentation) {
-    renderRoundedShadow(ctx, box, round, roundingPower, range, grad, Config::CGradientValueData{}, 0.f, a, presentation);
+                                          const Render::SWindowRenderPresentation& presentation, std::optional<CBox> cutout) {
+    renderRoundedShadow(ctx, box, round, roundingPower, range, grad, Config::CGradientValueData{}, 0.f, a, presentation, cutout);
 }
 
 void CHyprOpenGLImpl::renderRoundedShadow(CRenderContext& ctx, const CBox& box, int round, float roundingPower, int range, const Config::CGradientValueData& grad1,
-                                          const Config::CGradientValueData& grad2, float lerp, float a, const Render::SWindowRenderPresentation& presentation) {
+                                          const Config::CGradientValueData& grad2, float lerp, float a, const Render::SWindowRenderPresentation& presentation,
+                                          std::optional<CBox> cutout) {
     auto& m_renderData = ctx.m_data;
     RASSERT(m_renderData.pMonitor, "Tried to render shadow without begin()!");
     RASSERT((box.width > 0 && box.height > 0), "Tried to render shadow with width/height < 0!");
@@ -2275,30 +2276,32 @@ void CHyprOpenGLImpl::renderRoundedShadow(CRenderContext& ctx, const CBox& box, 
     } else
         drawRegion = ctx.m_data.damage;
 
-    if (ctx.m_data.currentWindow) {
-        const auto PWINDOW = ctx.m_data.currentWindow.lock();
-        if (PWINDOW) {
-            if (const auto WINDOWBOX = PWINDOW->surfaceLogicalBox(); WINDOWBOX.has_value()) {
-                CBox scaledWindowBox = WINDOWBOX.value();
-
-                scaledWindowBox.translate(presentation.workspaceOffset + presentation.floatingOffset);
-                scaledWindowBox.translate(-m_renderData.pMonitor->m_position);
-                scaledWindowBox.scale(m_renderData.pMonitor->m_scale).round();
-                m_renderData.renderModif.applyToBox(scaledWindowBox);
-
-                const auto cutoutTopLeft     = scaledWindowBox.pos() - newBox.pos();
-                const auto cutoutBottomRight = cutoutTopLeft + scaledWindowBox.size();
-
-                float      cutoutRadius = std::max(0.F, sc<float>(PWINDOW->presentation().rounding() * m_renderData.pMonitor->m_scale));
-                cutoutRadius            = std::round(cutoutRadius * m_renderData.renderModif.combinedScale());
-
-                shader->setUniformFloat2(SHADER_WINDOW_TOP_LEFT, sc<float>(cutoutTopLeft.x), sc<float>(cutoutTopLeft.y));
-                shader->setUniformFloat2(SHADER_WINDOW_BOTTOM_RIGHT, sc<float>(cutoutBottomRight.x), sc<float>(cutoutBottomRight.y));
-                shader->setUniformFloat(SHADER_THICK, cutoutRadius);
-
-                drawRegion.subtract(scaledWindowBox.copy().expand(-sc<int>(std::round(cutoutRadius))));
-            }
+    float cutoutRadius = 0.F;
+    if (cutout)
+        cutoutRadius = std::max(0, round);
+    else if (const auto PWINDOW = ctx.m_data.currentWindow.lock(); PWINDOW) {
+        if (const auto WINDOWBOX = PWINDOW->surfaceLogicalBox(); WINDOWBOX.has_value()) {
+            cutout = WINDOWBOX.value();
+            cutout->translate(presentation.workspaceOffset + presentation.floatingOffset);
+            cutout->translate(-m_renderData.pMonitor->m_position);
+            cutout->scale(m_renderData.pMonitor->m_scale).round();
+            cutoutRadius = std::max(0.F, sc<float>(PWINDOW->presentation().rounding() * m_renderData.pMonitor->m_scale));
         }
+    }
+
+    if (cutout) {
+        m_renderData.renderModif.applyToBox(*cutout);
+
+        const auto cutoutTopLeft     = cutout->pos() - newBox.pos();
+        const auto cutoutBottomRight = cutoutTopLeft + cutout->size();
+
+        cutoutRadius = std::round(cutoutRadius * m_renderData.renderModif.combinedScale());
+
+        shader->setUniformFloat2(SHADER_WINDOW_TOP_LEFT, sc<float>(cutoutTopLeft.x), sc<float>(cutoutTopLeft.y));
+        shader->setUniformFloat2(SHADER_WINDOW_BOTTOM_RIGHT, sc<float>(cutoutBottomRight.x), sc<float>(cutoutBottomRight.y));
+        shader->setUniformFloat(SHADER_THICK, cutoutRadius);
+
+        drawRegion.subtract(cutout->copy().expand(-sc<int>(std::round(cutoutRadius))));
     }
 
     if (!drawRegion.empty())
