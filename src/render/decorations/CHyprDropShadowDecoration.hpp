@@ -42,6 +42,8 @@ class CHyprDropShadowDecoration : public IHyprWindowDecoration {
     bool                               canRender(PHLMONITOR);
     SShadowRenderData                  getRenderData(Render::CRenderContext& ctx, PHLMONITOR, float const& a, const Render::SWindowRenderPresentation& presentation);
     void                               reposition(Render::CRenderContext& ctx);
+    void                               damageReach(const SBoxExtents& reach);
+    SBoxExtents                        reach();
 
     // TODO remove
     void render(Render::CRenderContext& ctx, PHLMONITOR, float const& a, const Render::SWindowRenderPresentation& presentation);
