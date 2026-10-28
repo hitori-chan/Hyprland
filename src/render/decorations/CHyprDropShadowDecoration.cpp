@@ -79,16 +79,24 @@ void CHyprDropShadowDecoration::onWindowFocus() {
 }
 
 void CHyprDropShadowDecoration::damageEntire() {
+    damageReach(m_extents);
+}
+
+// the window's box grown by the shadow's reach, where it is shown
+void CHyprDropShadowDecoration::damageReach(const SBoxExtents& reach) {
     static auto PSHADOWS = CConfigValue<Config::INTEGER>("decoration:shadow:enabled");
 
     if (*PSHADOWS != 1)
         return; // disabled
 
     const auto PWINDOW = m_window.lock();
-    const auto pos     = PWINDOW->position(Desktop::View::IGeometric::GEOMETRIC_CURRENT);
-    const auto size    = PWINDOW->size(Desktop::View::IGeometric::GEOMETRIC_CURRENT);
+    if (!PWINDOW)
+        return;
 
-    CBox       shadowBox = {pos.x - m_extents.topLeft.x, pos.y - m_extents.topLeft.y, pos.x + size.x + m_extents.bottomRight.x, pos.y + size.y + m_extents.bottomRight.y};
+    const auto pos  = PWINDOW->position(Desktop::View::IGeometric::GEOMETRIC_CURRENT);
+    const auto size = PWINDOW->size(Desktop::View::IGeometric::GEOMETRIC_CURRENT);
+
+    CBox       shadowBox = {pos.x - reach.topLeft.x, pos.y - reach.topLeft.y, size.x + reach.topLeft.x + reach.bottomRight.x, size.y + reach.topLeft.y + reach.bottomRight.y};
 
     const auto PWORKSPACE  = PWINDOW->m_workspace;
     const auto applyOffset = [&](CBox& b) {
@@ -228,8 +236,13 @@ SShadowRenderData CHyprDropShadowDecoration::getRenderData(Render::CRenderContex
 }
 
 void CHyprDropShadowDecoration::reposition(Render::CRenderContext& ctx) {
-    if (m_extents != m_reportedExtents)
+    // the reach is only known once a frame drew it (a new window's first):
+    // the damage so far covered the old one, so both get the next frame
+    if (m_extents != m_reportedExtents) {
+        damageReach(m_reportedExtents);
         g_pDecorationPositioner->repositionDeco(this);
+        damageReach(m_extents);
+    }
 
     ctx.m_data.currentWindow.reset();
 }
