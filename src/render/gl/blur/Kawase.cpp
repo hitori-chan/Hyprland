@@ -222,6 +222,7 @@ SP<CGLFramebuffer> CDualKawaseBlurProvider::blurGL(CRenderContext& ctx, SP<CGLFr
     {
         static auto PBLURNOISE      = CConfigValue<Config::FLOAT>("decoration:blur:noise");
         static auto PBLURBRIGHTNESS = CConfigValue<Config::FLOAT>("decoration:blur:brightness");
+        static auto PBLURHIGHLIGHTS = CConfigValue<Config::FLOAT>("decoration:blur:highlights");
 
         if (currentRenderToFB == PMIRRORFB)
             PMIRRORSWAPFB->bind();
@@ -265,6 +266,7 @@ SP<CGLFramebuffer> CDualKawaseBlurProvider::blurGL(CRenderContext& ctx, SP<CGLFr
         shader->setUniformMatrix3fv(SHADER_PROJ, 1, GL_TRUE, glMatrix.getMatrix());
         shader->setUniformFloat(SHADER_NOISE, *PBLURNOISE);
         shader->setUniformFloat(SHADER_BRIGHTNESS, *PBLURBRIGHTNESS);
+        shader->setUniformFloat(SHADER_HIGHLIGHTS, *PBLURHIGHLIGHTS);
         shader->setUniformInt(SHADER_TEX, 0);
         if (REQUIRES_PREPARED_INPUT)
             shader->setUniformInt(SHADER_SHARP_TEX, 1);
