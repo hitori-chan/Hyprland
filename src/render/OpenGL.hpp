@@ -195,10 +195,13 @@ namespace Render::GL {
         void renderRect(CRenderContext& ctx, const CBox&, const CHyprColor&, SRectRenderData data);
         void renderTexture(CRenderContext& ctx, SP<ITexture>, const CBox&, STextureRenderData data);
         void renderTextureMesh(CRenderContext& ctx, SP<ITexture>, const CBox&, const std::vector<SMeshRenderVertex>& vertices, STextureRenderData data);
+        // cutout: a box, rounded like the shadow, that the shadow stays clear of (a
+        // translucent surface over its own drop); a window's shadow clears its surface
         void renderRoundedShadow(CRenderContext& ctx, const CBox&, int round, float roundingPower, int range, const Config::CGradientValueData& color, float a,
-                                 const Render::SWindowRenderPresentation& presentation);
+                                 const Render::SWindowRenderPresentation& presentation, std::optional<CBox> cutout = {});
         void renderRoundedShadow(CRenderContext& ctx, const CBox&, int round, float roundingPower, int range, const Config::CGradientValueData& grad1,
-                                 const Config::CGradientValueData& grad2, float lerp, float a, const Render::SWindowRenderPresentation& presentation);
+                                 const Config::CGradientValueData& grad2, float lerp, float a, const Render::SWindowRenderPresentation& presentation,
+                                 std::optional<CBox> cutout = {});
         void renderInnerGlow(CRenderContext& ctx, const CBox&, int round, float roundingPower, int range, const Config::CGradientValueData& color, int glowPower, float a = 1.0);
         void renderInnerGlow(CRenderContext& ctx, const CBox&, int round, float roundingPower, int range, const Config::CGradientValueData& grad1,
                              const Config::CGradientValueData& grad2, float lerp, int glowPower, float a = 1.0);
