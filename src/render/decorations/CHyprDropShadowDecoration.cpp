@@ -23,6 +23,7 @@ eDecorationType CHyprDropShadowDecoration::getDecorationType() {
 SDecorationPositioningInfo CHyprDropShadowDecoration::getPositioningInfo() {
     SDecorationPositioningInfo info;
     info.policy         = DECORATION_POSITION_ABSOLUTE;
+    m_extents           = reach();
     info.desiredExtents = m_extents;
     info.edges          = DECORATION_EDGE_BOTTOM | DECORATION_EDGE_LEFT | DECORATION_EDGE_RIGHT | DECORATION_EDGE_TOP;
 
@@ -79,6 +80,36 @@ void CHyprDropShadowDecoration::onWindowFocus() {
 }
 
 void CHyprDropShadowDecoration::damageEntire() {
+    damageReach(m_extents);
+}
+
+// how far the shadow reaches past the window: config and geometry alone, so
+// the positioner knows it before a frame draws it and the window's own
+// damage covers the shadow from its first frame (a frame that only damages
+// under an opaque window culls the shadow, and would never learn it)
+SBoxExtents CHyprDropShadowDecoration::reach() {
+    static auto PSHADOWSIZE   = CConfigValue<Config::INTEGER>("decoration:shadow:range");
+    static auto PSHADOWSCALE  = CConfigValue<Config::FLOAT>("decoration:shadow:scale");
+    static auto PSHADOWOFFSET = CConfigValue<Config::VEC2>("decoration:shadow:offset");
+
+    const auto  PWINDOW = m_window.lock();
+    if (!PWINDOW)
+        return {};
+
+    const auto POS  = PWINDOW->position(Desktop::View::IGeometric::GEOMETRIC_CURRENT);
+    const auto SIZE = PWINDOW->size(Desktop::View::IGeometric::GEOMETRIC_CURRENT);
+
+    CBox       box = g_pDecorationPositioner->getBoxWithIncludedDecos(PWINDOW);
+    box.expand(*PSHADOWSIZE).scaleFromCenter(std::clamp(*PSHADOWSCALE, 0.f, 1.f)).translate({(*PSHADOWOFFSET).x, (*PSHADOWOFFSET).y});
+
+    return {
+        .topLeft     = {POS.x - box.x + 2, POS.y - box.y + 2},
+        .bottomRight = {box.x + box.w - POS.x - SIZE.x + 2, box.y + box.h - POS.y - SIZE.y + 2},
+    };
+}
+
+// the window's box grown by the shadow's reach, where it is shown
+void CHyprDropShadowDecoration::damageReach(const SBoxExtents& reach) {
     static auto PSHADOWS = CConfigValue<Config::INTEGER>("decoration:shadow:enabled");
 
     if (*PSHADOWS != 1)
@@ -88,7 +119,7 @@ void CHyprDropShadowDecoration::damageEntire() {
     const auto pos     = PWINDOW->position(Desktop::View::IGeometric::GEOMETRIC_CURRENT);
     const auto size    = PWINDOW->size(Desktop::View::IGeometric::GEOMETRIC_CURRENT);
 
-    CBox       shadowBox = {pos.x - m_extents.topLeft.x, pos.y - m_extents.topLeft.y, pos.x + size.x + m_extents.bottomRight.x, pos.y + size.y + m_extents.bottomRight.y};
+    CBox       shadowBox = {pos.x - reach.topLeft.x, pos.y - reach.topLeft.y, size.x + reach.topLeft.x + reach.bottomRight.x, size.y + reach.topLeft.y + reach.bottomRight.y};
 
     const auto PWORKSPACE  = PWINDOW->presentation().workspace();
     const auto applyOffset = [&](CBox& b) {
@@ -195,19 +226,7 @@ SShadowRenderData CHyprDropShadowDecoration::getRenderData(Render::CRenderContex
     fullBox.scaleFromCenter(SHADOWSCALE).translate({(*PSHADOWOFFSET).x, (*PSHADOWOFFSET).y});
 
     updateWindow(PWINDOW);
-    m_lastWindowPos += WORKSPACEOFFSET;
-    m_extents = {
-        .topLeft =
-            {
-                m_lastWindowPos.x - fullBox.x - pMonitor->m_position.x + 2,
-                m_lastWindowPos.y - fullBox.y - pMonitor->m_position.y + 2,
-            },
-        .bottomRight =
-            {
-                fullBox.x + fullBox.width + pMonitor->m_position.x - m_lastWindowPos.x - m_lastWindowSize.x + 2,
-                fullBox.y + fullBox.height + pMonitor->m_position.y - m_lastWindowPos.y - m_lastWindowSize.y + 2,
-            },
-    };
+    m_extents = reach();
 
     fullBox.translate(presentation.floatingOffset);
 
@@ -228,8 +247,13 @@ SShadowRenderData CHyprDropShadowDecoration::getRenderData(Render::CRenderContex
 }
 
 void CHyprDropShadowDecoration::reposition(Render::CRenderContext& ctx) {
-    if (m_extents != m_reportedExtents)
+    // a config or border change moved the reach past what the window's
+    // damage covered: both reaches get the next frame
+    if (m_extents != m_reportedExtents) {
+        damageReach(m_reportedExtents);
         g_pDecorationPositioner->repositionDeco(this);
+        damageReach(m_extents);
+    }
 
     ctx.m_data.currentWindow.reset();
 }
