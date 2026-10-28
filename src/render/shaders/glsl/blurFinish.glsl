@@ -9,6 +9,9 @@
 #include "cm_helpers.glsl"
 #endif
 
+// the luminance the highlights roll off toward (0 = off)
+uniform float highlights;
+
 float hash(vec2 p) {
     vec3 p3 = fract(vec3(p.xyx) * 1689.1984);
     p3 += dot(p3, p3.yzx + 33.33);
@@ -37,6 +40,15 @@ vec4 blurFinish(vec4 pixColor, vec2 v_texcoord, float noise, float brightness
 
     // brightness
     pixColor.rgb *= brightnessMultiplier;
+
+    // highlights roll off toward a ceiling while shadows pass (slope 1 at
+    // black), by luminance so hue holds: light text over the blur stays
+    // readable on any backdrop without greying a dark one
+    if (highlights > 0.0) {
+        float luma = dot(pixColor.rgb, vec3(0.2126, 0.7152, 0.0722)) / max(pixColor.a, 0.0001);
+        if (luma > 0.0)
+            pixColor.rgb *= highlights * (1.0 - exp(-luma / highlights)) / luma;
+    }
 
 #if USE_CM
     pixColor = doColorManagement(pixColor, 1.0, sourceTF, targetTF, convertMatrix, srcTFRange, dstTFRange, linearNoise);
