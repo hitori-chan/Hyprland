@@ -225,7 +225,7 @@ void IFullscreenHandler::setTargetSizeAndPosition(const SP<Layout::ITarget> targ
     const auto LAYOUT_TARGET = target->window()->layoutTarget();
 
     if (TARGET_INTERNAL_MODE == FSMODE_FULLSCREEN) {
-        const CBox MONBOX                                  = MONITOR->logicalBox();
+        const CBox MONBOX                                  = MONITOR->fullscreenBox();
         Fullscreen::controller()->m_windowPosSettingQueued = true;
         LAYOUT_TARGET->setPositionGlobal(MONBOX);
     } else if (TARGET_INTERNAL_MODE == FSMODE_MAXIMIZED) {
@@ -256,8 +256,8 @@ void IFullscreenHandler::syncTargetSizeAndPosition() {
 
     if (TARGET_INTERNAL_MODE == FSMODE_FULLSCREEN) {
 
-        const CBox MONBOX         = MONITOR->logicalBox();
-        const CBox ROUNDED_MONBOX = MONITOR->logicalBox().round();
+        const CBox MONBOX         = MONITOR->fullscreenBox();
+        const CBox ROUNDED_MONBOX = MONITOR->fullscreenBox().round();
 
         const auto CURRENT_REAL_POS_GOAL  = WINDOW.get()->position(Desktop::View::IGeometric::GEOMETRIC_GOAL);
         const auto CURRENT_REAL_SIZE_GOAL = WINDOW.get()->size(Desktop::View::IGeometric::GEOMETRIC_GOAL);

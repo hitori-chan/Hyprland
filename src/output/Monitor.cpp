@@ -1670,6 +1670,15 @@ CBox CMonitor::logicalBox() const {
     return {m_position, m_size};
 }
 
+CBox CMonitor::fullscreenBox() const {
+    return {m_position.x, m_position.y + m_fullscreenInsetTop, m_size.x, m_size.y - m_fullscreenInsetTop};
+}
+
+// where a fullscreenBox()-sized buffer goes on the output, px
+Vector2D CMonitor::fullscreenScanoutPos() const {
+    return Vector2D{0.0, std::round(m_fullscreenInsetTop * m_scale)};
+}
+
 CBox CMonitor::logicalBoxMinusReserved() const {
     return m_reservedArea.apply(logicalBox());
 }
@@ -1772,7 +1781,8 @@ uint32_t CMonitor::isSolitaryBlocked(bool full) {
             return reasons;
     }
 
-    if (PCANDIDATE->size(Desktop::View::IGeometric::GEOMETRIC_CURRENT) != m_size || PCANDIDATE->position(Desktop::View::IGeometric::GEOMETRIC_CURRENT) != m_position ||
+    const auto FSBOX = fullscreenBox();
+    if (PCANDIDATE->size(Desktop::View::IGeometric::GEOMETRIC_CURRENT) != FSBOX.size() || PCANDIDATE->position(Desktop::View::IGeometric::GEOMETRIC_CURRENT) != FSBOX.pos() ||
         PCANDIDATE->positionAnimation()->isBeingAnimated() || PCANDIDATE->sizeAnimation()->isBeingAnimated()) {
         reasons |= SC_TRANSFORM;
         if (!full)
@@ -1976,7 +1986,9 @@ uint16_t CMonitor::isDSBlocked(bool full) {
         return reasons;
     }
 
-    if (PSURFACE->m_current.bufferSize != m_pixelSize || PSURFACE->m_current.transform != m_transform) {
+    // an inset is along the panel's own top edge only when unrotated
+    if (PSURFACE->m_current.bufferSize != m_pixelSize - fullscreenScanoutPos() || PSURFACE->m_current.transform != m_transform ||
+        (m_fullscreenInsetTop > 0 && m_transform != WL_OUTPUT_TRANSFORM_NORMAL)) {
         reasons |= DS_BLOCK_TRANSFORM;
         if (!full)
             return reasons;
@@ -2058,15 +2070,16 @@ bool CMonitor::attemptDirectScanout() {
 
     const auto  previousFormat           = m_drmFormat;
     const auto  previousBuffer           = m_output->state->state().buffer;
+    const auto  previousBufferPos        = m_output->state->state().bufferPos;
     const auto  previousPresentationMode = m_output->state->state().presentationMode;
     bool        scanoutCommitted         = false;
-    CScopeGuard rollbackState            = {[this, previousFormat, previousBuffer, previousPresentationMode, &scanoutCommitted]() {
+    CScopeGuard rollbackState            = {[this, previousFormat, previousBuffer, previousBufferPos, previousPresentationMode, &scanoutCommitted]() {
         if (scanoutCommitted)
             return;
 
         m_drmFormat = previousFormat;
         m_output->state->setFormat(previousFormat);
-        m_output->state->setBuffer(previousBuffer);
+        m_output->state->setBuffer(previousBuffer, previousBufferPos);
         m_output->state->setPresentationMode(previousPresentationMode);
         m_output->state->resetExplicitFences();
     }};
@@ -2077,7 +2090,7 @@ bool CMonitor::attemptDirectScanout() {
         m_drmFormat = params.format;
     }
 
-    m_output->state->setBuffer(PBUFFER);
+    m_output->state->setBuffer(PBUFFER, fullscreenScanoutPos());
     LOG(Log::TRACE, "attemptDirectScanout: setting presentation mode");
     m_output->state->setPresentationMode(m_tearingState.activelyTearing ? Aquamarine::eOutputPresentationMode::AQ_OUTPUT_PRESENTATION_IMMEDIATE :
                                                                           Aquamarine::eOutputPresentationMode::AQ_OUTPUT_PRESENTATION_VSYNC);
@@ -2094,7 +2107,8 @@ bool CMonitor::attemptDirectScanout() {
     // the ring is in transformed space, the fb we hand to KMS is in pixel space
     scanoutDamage.transform(Math::wlTransformToHyprutils(Math::invertTransform(m_transform)), m_transformedSize.x, m_transformedSize.y);
     // expand to not miss pixels from rounding, being a bit over is safe, going below is stale pixels.
-    scanoutDamage.expand(1).intersect(CBox{{}, m_pixelSize});
+    // The fb sits at the fullscreen inset's offset: its damage is its own.
+    scanoutDamage.expand(1).translate(-fullscreenScanoutPos()).intersect(CBox{{}, m_pixelSize - fullscreenScanoutPos()});
     m_output->state->addDamage(scanoutDamage);
 
     // multigpu needs a fence to trigger fence syncing blits and also committing with the recreated dgpu fence

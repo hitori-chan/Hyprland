@@ -347,6 +347,15 @@ bool IHyprRenderer::shouldRenderWindowInScene(PHLWINDOW window, PHLMONITOR monit
                               });
 }
 
+// a plugin's fullscreen inset is black, as the display leaves the area a
+// placed scanout buffer does not cover
+static void renderFullscreenInset(CRenderContext& ctx, PHLMONITOR pMonitor, const Vector2D& offset, float alpha) {
+    CRectPassElement::SRectData data;
+    data.box   = {offset.x * pMonitor->m_scale, offset.y * pMonitor->m_scale, pMonitor->m_transformedSize.x, pMonitor->m_fullscreenInsetTop * pMonitor->m_scale};
+    data.color = CHyprColor(0, 0, 0, alpha);
+    IHyprRenderer::addPassElement(ctx, makeUnique<CRectPassElement>(data));
+}
+
 void IHyprRenderer::renderWorkspaceWindowsFullscreen(CRenderContext& ctx, PHLMONITOR pMonitor, PHLWORKSPACE pWorkspace, const Time::steady_tp& time) {
     renderWorkspaceWindowsFullscreen(ctx, pMonitor, pWorkspace, time, eSceneMode::MONITOR);
 }
@@ -356,6 +365,10 @@ void IHyprRenderer::renderWorkspaceWindowsFullscreen(CRenderContext& ctx, PHLMON
     const bool SPECIAL          = pWorkspace->type() == Workspace::eWorkspaceType::SPECIAL;
 
     Event::bus()->m_events.render.stage.emit({RENDER_PRE_WINDOWS, pMonitor, ctx});
+
+    if (mode == eSceneMode::MONITOR && !SPECIAL && pMonitor->m_fullscreenInsetTop > 0 &&
+        Fullscreen::controller()->getFullscreenModes(pWorkspace).internal == Fullscreen::FSMODE_FULLSCREEN)
+        renderFullscreenInset(ctx, pMonitor, pWorkspace->m_renderOffset->value(), pWorkspace->m_alpha->value());
 
     // pre-filter renderable windows once for the tiled + floating passes
     std::vector<PHLWINDOW> windows;
@@ -2411,10 +2424,13 @@ void IHyprRenderer::renderMonitor(PHLMONITOR pMonitor, bool commit) {
 
     bool renderCursor = true;
 
-    if (pMonitor->m_solitaryClient && (!finalDamage.empty() || *PSOLDAMAGE))
+    if (pMonitor->m_solitaryClient && (!finalDamage.empty() || *PSOLDAMAGE)) {
+        // a buffer that has not shown the inset yet carries it in its damage
+        if (pMonitor->m_fullscreenInsetTop > 0)
+            renderFullscreenInset(ctx, pMonitor, {}, 1.F);
         renderWindow(ctx, pMonitor->m_solitaryClient.lock(), pMonitor, pMonitor->m_solitaryClient->presentation().renderPresentation(), NOW, false,
                      RENDER_PASS_MAIN /* solitary = no popups */);
-    else if (!finalDamage.empty()) {
+    } else if (!finalDamage.empty()) {
         const bool    IS_MIRROR = pMonitor->isMirror();
         CMonitorScene scene(pMonitor);
         scene.draw(ctx, NOW);
