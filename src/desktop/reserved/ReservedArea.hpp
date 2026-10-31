@@ -7,6 +7,7 @@ namespace Desktop {
     enum eReservedDynamicType : uint8_t {
         RESERVED_DYNAMIC_TYPE_LS = 0,
         RESERVED_DYNAMIC_TYPE_ERROR_BAR,
+        RESERVED_DYNAMIC_TYPE_PLUGIN, // a plugin's own panel (a bar it draws)
 
         RESERVED_DYNAMIC_TYPE_END,
     };
