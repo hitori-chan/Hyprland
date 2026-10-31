@@ -86,6 +86,7 @@ namespace Monitor {
 
         Desktop::CReservedArea      m_reservedArea;
         Desktop::CReservedArea      m_lastAnnouncedReservedArea;
+        double                      m_fullscreenInsetTop = 0; // logical px a plugin keeps fullscreen windows below (a display notch's band)
 
         CMonitorState               m_state;
         CDamageRing                 m_damage;
@@ -306,6 +307,8 @@ namespace Monitor {
         virtual Hyprutils::Math::eTransform transform() const override;
         virtual CBox                        logicalBox() const override;
         virtual CBox                        logicalBoxMinusReserved() const override;
+        CBox                                fullscreenBox() const;
+        Vector2D                            fullscreenScanoutPos() const;
         virtual Vector2D                    middle() const override;
         virtual void                        moveTo(const Vector2D& pos) override;
         virtual bool                        enabled() const override;
