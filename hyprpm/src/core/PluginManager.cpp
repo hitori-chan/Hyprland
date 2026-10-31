@@ -623,14 +623,9 @@ bool CPluginManager::updateHeaders(bool force) {
     progress.m_szCurrentMessage = "Installing sources";
     progress.print();
 
-    std::string cmd = std::format("sed -i -e \"s#PREFIX = /usr/local#PREFIX = {}#\" {}/Makefile", DataState::getHeadersPath(), WORKINGDIR);
-    if (m_bVerbose)
-        progress.printMessageAbove(verboseString("prepare install will run: {}", cmd));
-
-    ret = execAndGet(cmd);
-
-    cmd = std::format("make -C '{}' installheaders && chmod -R 644 '{}' && find '{}' -type d -exec chmod a+x {{}} \\;", WORKINGDIR, DataState::getHeadersPath(),
-                      DataState::getHeadersPath());
+    // PREFIX on make's command line: it overrides the Makefile's `PREFIX ?=`
+    std::string cmd = std::format("make -C '{}' PREFIX='{}' installheaders && chmod -R 644 '{}' && find '{}' -type d -exec chmod a+x {{}} \\;", WORKINGDIR,
+                                  DataState::getHeadersPath(), DataState::getHeadersPath(), DataState::getHeadersPath());
 
     if (m_bVerbose)
         progress.printMessageAbove(verboseString("install will run as sudo: {}", cmd));
