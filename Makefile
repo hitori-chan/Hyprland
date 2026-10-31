@@ -54,7 +54,8 @@ pluginenv:
 	@echo -en "$(MAKE) pluginenv has been deprecated.\nPlease run $(MAKE) all && sudo $(MAKE) installheaders\n"
 	@exit 1
 
-installheaders: cmake_smartbuild
+# headers need only a configured tree: hyprpm runs this as root
+installheaders:
 	@if [ ! -f ./src/version.h ]; then echo -en "You need to run $(MAKE) all first.\n" && exit 1; fi
 
 	# remove previous headers from hyprpm's dir
