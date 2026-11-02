@@ -36,6 +36,8 @@ namespace Desktop::View {
         void                                   setPendingClientRequest(Fullscreen::eFullscreenMode mode, std::optional<MONITORID> monitor = std::nullopt);
         void                                   clearPendingClientMode(Fullscreen::eFullscreenMode mode);
         SPendingClientFullscreenRequest        consumePendingClientRequest();
+        bool                                   toldPendingFullscreen() const;
+        void                                   setToldPendingFullscreen(bool told);
 
         bool                                   pinFullscreened() const;
         void                                   setPinFullscreened(bool pinFullscreened);
@@ -49,5 +51,6 @@ namespace Desktop::View {
         SPendingClientFullscreenRequest m_pendingClientRequest;
         bool                            m_pinFullscreened        = false;
         bool                            m_restoreClientMaximized = false;
+        bool                            m_toldPendingFullscreen  = false; // the first configure told the pending ask; map takes a refusal back
     };
 }
