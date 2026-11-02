@@ -221,10 +221,10 @@ Mat3x3 NColorManagement::adaptBradford(Hyprgraphics::CColor::xy srcW, Hyprgraphi
 #define SRGB_SCALE 12.92
 #define SRGB_ALPHA 1.055
 
-#define BT1886_POW   (1.0 / 0.45)
-#define BT1886_CUT   0.018053968510807
-#define BT1886_SCALE 4.5
-#define BT1886_ALPHA (1.0 + 5.5 * BT1886_CUT)
+#define BT709_POW   (1.0 / 0.45)
+#define BT709_CUT   0.018053968510807
+#define BT709_SCALE 4.5
+#define BT709_ALPHA (1.0 + 5.5 * BT709_CUT)
 
 // See http://car.france3.mars.free.fr/HD/INA-%2026%20jan%2006/SMPTE%20normes%20et%20confs/s240m.pdf
 #define ST240_POW   (1.0 / 0.45)
@@ -274,7 +274,7 @@ static RGBAColor tfInvHLG(RGBAColor color) {
 
 // Many transfer functions (including sRGB) follow the same pattern: a linear
 // segment for small values and a power function for larger values. The
-// following function implements this pattern from which sRGB, BT.1886, and
+// following function implements this pattern from which sRGB, BT.709, and
 // others can be derived by plugging in the right constants.
 static RGBAColor tfInvLinPow(RGBAColor color, float gamma, float thres, float scale, float alpha) {
     for (uint i = 0; i <= 2; i++) {
@@ -299,14 +299,14 @@ static RGBAColor tfInvExtSRGB(RGBAColor color) {
     }};
 }
 
-static RGBAColor tfInvBT1886(RGBAColor color) {
-    return tfInvLinPow(color, BT1886_POW, BT1886_CUT, BT1886_SCALE, BT1886_ALPHA);
+static RGBAColor tfInvBT709(RGBAColor color) {
+    return tfInvLinPow(color, BT709_POW, BT709_CUT, BT709_SCALE, BT709_ALPHA);
 }
 
 static RGBAColor tfInvXVYCC(RGBAColor color) {
-    // The inverse transfer function for XVYCC is the BT1886 transfer function mirrored around 0,
+    // The inverse transfer function for XVYCC is the BT.709 transfer function mirrored around 0,
     // same as what EXT sRGB is to sRGB.
-    const auto absColor = tfInvBT1886({{.r = abs(color.c.r), .g = abs(color.c.g), .b = abs(color.c.b), .a = color.c.a}});
+    const auto absColor = tfInvBT709({{.r = abs(color.c.r), .g = abs(color.c.g), .b = abs(color.c.b), .a = color.c.a}});
     return {{
         .r = absColor.c.r * sign(color.c.r),
         .g = absColor.c.g * sign(color.c.g),
@@ -359,14 +359,14 @@ static RGBAColor tfExtSRGB(RGBAColor color) {
     }};
 }
 
-static RGBAColor tfBT1886(RGBAColor color) {
-    return tfLinPow(color, BT1886_POW, BT1886_CUT, BT1886_SCALE, BT1886_ALPHA);
+static RGBAColor tfBT709(RGBAColor color) {
+    return tfLinPow(color, BT709_POW, BT709_CUT, BT709_SCALE, BT709_ALPHA);
 }
 
 static RGBAColor tfXVYCC(RGBAColor color) {
-    // The transfer function for XVYCC is the BT1886 transfer function mirrored around 0,
+    // The transfer function for XVYCC is the BT.709 transfer function mirrored around 0,
     // same as what EXT sRGB is to sRGB.
-    const auto absColor = tfBT1886({{.r = abs(color.c.r), .g = abs(color.c.g), .b = abs(color.c.b), .a = color.c.a}});
+    const auto absColor = tfBT709({{.r = abs(color.c.r), .g = abs(color.c.g), .b = abs(color.c.b), .a = color.c.a}});
     return {{
         .r = absColor.c.r * sign(color.c.r),
         .g = absColor.c.g * sign(color.c.g),
@@ -423,7 +423,7 @@ static RGBAColor toLinearRGB(RGBAColor color, eTransferFunction tf) {
         case CM_TRANSFER_FUNCTION_GAMMA28: return tfGamma(color, 2.8);
         case CM_TRANSFER_FUNCTION_HLG: return tfInvHLG(color);
         case CM_TRANSFER_FUNCTION_EXT_SRGB: return tfInvExtSRGB(color);
-        case CM_TRANSFER_FUNCTION_BT1886: return tfInvBT1886(color);
+        case CM_TRANSFER_FUNCTION_BT1886: return tfGamma(color, 2.4);
         case CM_TRANSFER_FUNCTION_ST240: return tfInvST240(color);
         case CM_TRANSFER_FUNCTION_LOG_100: return tfLog(color, 2.0);
         case CM_TRANSFER_FUNCTION_LOG_316: return tfLog(color, 2.5);
@@ -442,7 +442,7 @@ static RGBAColor fromLinearRGB(RGBAColor color, eTransferFunction tf) {
         case CM_TRANSFER_FUNCTION_GAMMA28: return tfGamma(color, 1.0 / 2.8);
         case CM_TRANSFER_FUNCTION_HLG: return tfHLG(color);
         case CM_TRANSFER_FUNCTION_EXT_SRGB: return tfExtSRGB(color);
-        case CM_TRANSFER_FUNCTION_BT1886: return tfBT1886(color);
+        case CM_TRANSFER_FUNCTION_BT1886: return tfGamma(color, 1.0 / 2.4);
         case CM_TRANSFER_FUNCTION_ST240: return tfST240(color);
         case CM_TRANSFER_FUNCTION_LOG_100: return tfInvLog(color, 2.0, 0.01);
         case CM_TRANSFER_FUNCTION_LOG_316: return tfInvLog(color, 2.5, sqrt(10.0) / 1000.0);

@@ -50,7 +50,7 @@ vec3 tfInvHLG(vec3 color) {
 
 // Many transfer functions (including sRGB) follow the same pattern: a linear
 // segment for small values and a power function for larger values. The
-// following function implements this pattern from which sRGB, BT.1886, and
+// following function implements this pattern from which sRGB, BT.709, and
 // others can be derived by plugging in the right constants.
 vec3 tfInvLinPow(vec3 color, float gamma, float thres, float scale, float alpha) {
     bvec3 isLow = lessThanEqual(color.rgb, vec3(thres * scale));
@@ -68,14 +68,14 @@ vec3 tfInvExtSRGB(vec3 color) {
     return sign(color) * tfInvSRGB(abs(color));
 }
 
-vec3 tfInvBT1886(vec3 color) {
-    return tfInvLinPow(color, BT1886_POW, BT1886_CUT, BT1886_SCALE, BT1886_ALPHA);
+vec3 tfInvBT709(vec3 color) {
+    return tfInvLinPow(color, BT709_POW, BT709_CUT, BT709_SCALE, BT709_ALPHA);
 }
 
 vec3 tfInvXVYCC(vec3 color) {
-    // The inverse transfer function for XVYCC is the BT1886 transfer function mirrored around 0,
+    // The inverse transfer function for XVYCC is the BT.709 transfer function mirrored around 0,
     // same as what EXT sRGB is to sRGB.
-    return sign(color) * tfInvBT1886(abs(color));
+    return sign(color) * tfInvBT709(abs(color));
 }
 
 vec3 tfInvST240(vec3 color) {
@@ -111,14 +111,14 @@ vec3 tfExtSRGB(vec3 color) {
     return sign(color) * tfSRGB(abs(color));
 }
 
-vec3 tfBT1886(vec3 color) {
-    return tfLinPow(color, BT1886_POW, BT1886_CUT, BT1886_SCALE, BT1886_ALPHA);
+vec3 tfBT709(vec3 color) {
+    return tfLinPow(color, BT709_POW, BT709_CUT, BT709_SCALE, BT709_ALPHA);
 }
 
 vec3 tfXVYCC(vec3 color) {
-    // The transfer function for XVYCC is the BT1886 transfer function mirrored around 0,
+    // The transfer function for XVYCC is the BT.709 transfer function mirrored around 0,
     // same as what EXT sRGB is to sRGB.
-    return sign(color) * tfBT1886(abs(color));
+    return sign(color) * tfBT709(abs(color));
 }
 
 vec3 tfST240(vec3 color) {
@@ -134,7 +134,7 @@ vec3 toLinearRGB(vec3 color, int tf) {
         case CM_TRANSFER_FUNCTION_GAMMA28: return pow(max(color, vec3(0.0)), vec3(2.8));
         case CM_TRANSFER_FUNCTION_HLG: return tfInvHLG(color);
         case CM_TRANSFER_FUNCTION_EXT_SRGB: return tfInvExtSRGB(color);
-        case CM_TRANSFER_FUNCTION_BT1886: return tfInvBT1886(color);
+        case CM_TRANSFER_FUNCTION_BT1886: return pow(max(color, vec3(0.0)), vec3(2.4));
         case CM_TRANSFER_FUNCTION_ST240: return tfInvST240(color);
         case CM_TRANSFER_FUNCTION_LOG_100: return mix(exp((color - 1.0) * 2.0 * log(10.0)), vec3(0.0), lessThanEqual(color, vec3(0.0)));
         case CM_TRANSFER_FUNCTION_LOG_316: return mix(exp((color - 1.0) * 2.5 * log(10.0)), vec3(0.0), lessThanEqual(color, vec3(0.0)));
@@ -168,7 +168,7 @@ vec3 fromLinearRGB(vec3 color, int tf) {
         case CM_TRANSFER_FUNCTION_GAMMA28: return pow(max(color, vec3(0.0)), vec3(1.0 / 2.8));
         case CM_TRANSFER_FUNCTION_HLG: return tfHLG(color);
         case CM_TRANSFER_FUNCTION_EXT_SRGB: return tfExtSRGB(color);
-        case CM_TRANSFER_FUNCTION_BT1886: return tfBT1886(color);
+        case CM_TRANSFER_FUNCTION_BT1886: return pow(max(color, vec3(0.0)), vec3(1.0 / 2.4));
         case CM_TRANSFER_FUNCTION_ST240: return tfST240(color);
         case CM_TRANSFER_FUNCTION_LOG_100: return mix(1.0 + log(color) / log(10.0) / 2.0, vec3(0.0), lessThanEqual(color, vec3(0.01)));
         case CM_TRANSFER_FUNCTION_LOG_316: return mix(1.0 + log(color) / log(10.0) / 2.5, vec3(0.0), lessThanEqual(color, vec3(sqrt(10.0) / 1000.0)));
