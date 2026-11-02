@@ -2204,6 +2204,15 @@ SCMSettings IHyprRenderer::getCMSettings(CRenderContext& ctx, const NColorManage
         .sdrBrightnessMultiplier = needsSDRmod && ctx.m_data.pMonitor->m_sdrBrightness > 0 ? ctx.m_data.pMonitor->m_sdrBrightness : 1.0f,
     };
 
+    // BT.1886 is display-referred: code 0 and 1 are the display's black and
+    // white. Its default luminances (BT.2035's 0.01-100 cd/m²) taken as
+    // absolute on an SDR output crush the shadows and clip past 80 cd/m².
+    const auto DSTTF = targetImageDescription->value().transferFunction;
+    if (srcTF == CM_TRANSFER_FUNCTION_BT1886 && (DSTTF == CM_TRANSFER_FUNCTION_SRGB || DSTTF == CM_TRANSFER_FUNCTION_GAMMA22)) {
+        result.srcTFRange   = result.dstTFRange;
+        result.needsTonemap = false;
+    }
+
     ctx.m_cmSettingsCache.push_back({
         .srcDescId       = srcId,
         .dstDescId       = dstId,
