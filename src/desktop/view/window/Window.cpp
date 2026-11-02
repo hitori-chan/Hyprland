@@ -1593,6 +1593,16 @@ void CWindow::mapWindow() {
     if (isFloating() && Fullscreen::controller()->isFullscreen(m_self.lock()))
         m_bornFullscreen = true;
 
+    if (const auto TOLD = m_fullscreenPolicy->toldPendingMode(); TOLD != Fullscreen::FSMODE_NONE) {
+        m_fullscreenPolicy->setToldPendingMode(Fullscreen::FSMODE_NONE);
+        if (Fullscreen::controller()->getFullscreenModes(m_self.lock()).client != TOLD) {
+            if (TOLD == Fullscreen::FSMODE_FULLSCREEN)
+                m_backend->setFullscreen(false);
+            else
+                m_backend->setMaximized(false);
+        }
+    }
+
     // recheck idle inhibitors
     g_pInputManager->recheckIdleInhibitorStatus();
 
@@ -1812,6 +1822,26 @@ void CWindow::commitWindow(bool initialCommit) {
     if (initialCommit) {
         // try to calculate static rules already for any floats
         m_ruleApplicator->readStaticRules(true);
+
+        // a fullscreen or maximize ask made before the first configure is
+        // told in it, at the output's box or its work area: told windowed, a
+        // client sizes its first buffers (glmark2 also its viewport) for a
+        // frame it never shows. Map rules on the ask, sets the exact box
+        // (borders exist only then) and takes a refusal back.
+        if (const auto& ASK = m_fullscreenPolicy->pendingClientRequest(); ASK.mode.has_value() && *ASK.mode != Fullscreen::FSMODE_NONE && !m_backend->isX11()) {
+            // map's own default: the focused monitor (the window has none yet)
+            const auto MONITOR = ASK.monitor ? State::monitorState()->query().id(*ASK.monitor).run() : Desktop::focusState()->monitor();
+            if (MONITOR) {
+                const bool FULLSCREEN = *ASK.mode == Fullscreen::FSMODE_FULLSCREEN;
+                m_fullscreenPolicy->setToldPendingMode(*ASK.mode);
+                if (FULLSCREEN)
+                    m_backend->setFullscreen(true);
+                else
+                    m_backend->setMaximized(true);
+                m_backend->configure(FULLSCREEN ? MONITOR->logicalBox() : MONITOR->logicalBoxMinusReserved(), MONITOR);
+                return;
+            }
+        }
 
         const Vector2D predSize = !m_ruleApplicator->static_.floating.value_or(false) // no float rule
                 && !m_target->floating()                                              // not floating
