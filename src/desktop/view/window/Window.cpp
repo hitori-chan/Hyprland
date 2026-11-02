@@ -869,7 +869,9 @@ void CWindow::activate(bool force) {
     if (m_target->floating())
         Desktop::windowState()->raise(m_self.lock());
 
-    Desktop::focusState()->fullWindowFocus(m_self.lock(), FOCUS_REASON_DESKTOP_STATE_CHANGE);
+    // a switch to this window, not a fallback onto it: a shell that hides
+    // windows (minimize) restores one on a switch and bounces a fallback
+    Desktop::focusState()->fullWindowFocus(m_self.lock(), FOCUS_REASON_SWITCH_TO_WINDOW_HARD);
     warpCursor();
 }
 
