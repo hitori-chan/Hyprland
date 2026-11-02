@@ -899,6 +899,15 @@ void CHyprOpenGLImpl::end(CRenderContext& ctx) {
             }
 
             g_pHyprRenderer->bindFB(ctx, ctx.m_data.outFB);
+
+            // a copy over all of the output needs none of its old contents, so the driver can skip loading them. Not through
+            // IFramebuffer::invalidate(): an output buffer's framebuffer wraps a renderbuffer and has no texture
+            static const auto PFBINVALIDATE = CConfigValue<Config::INTEGER>("debug:invalidate_buffers");
+            if (*PFBINVALIDATE && CRegion{0, 0, PMONITOR->m_transformedSize.x, PMONITOR->m_transformedSize.y}.subtract(ctx.m_data.damage).empty()) {
+                const GLenum ATTACHMENT = GL_COLOR_ATTACHMENT0;
+                glInvalidateFramebuffer(GL_FRAMEBUFFER, 1, &ATTACHMENT);
+            }
+
             setViewport(0, 0, PMONITOR->m_pixelSize.x, PMONITOR->m_pixelSize.y);
             g_pHyprRenderer->setProjectionType(ctx, RPT_OUTPUT);
             ctx.m_data.transformDamage = true;
