@@ -632,7 +632,8 @@ ActionResult Actions::focusCurrentOrLast() {
 ActionResult Actions::focusUrgentOrLast() {
     const auto& HISTORY       = Desktop::History::windowTracker()->fullHistory();
     const auto  PWINDOWURGENT = Desktop::viewState()->query().urgent().runWindow();
-    const auto  PWINDOWPREV   = Desktop::focusState()->window() ? (HISTORY.size() < 2 ? nullptr : HISTORY[1].lock()) : (HISTORY.empty() ? nullptr : HISTORY[0].lock());
+    const auto  PWINDOWPREV =
+        Desktop::focusState()->window() ? (HISTORY.size() < 2 ? nullptr : HISTORY[HISTORY.size() - 2].lock()) : (HISTORY.empty() ? nullptr : HISTORY.back().lock());
 
     if (!PWINDOWURGENT && !PWINDOWPREV)
         return actionError("Window not found", eActionErrorLevel::INFO, eActionErrorCode::NOT_FOUND);
