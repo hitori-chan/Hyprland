@@ -279,6 +279,19 @@ bool CScreenshareManager::needsWorkspaceCaptureSnapshot(PHLWINDOW window) const 
     return std::ranges::any_of(m_pendingFrames, [&](const auto& frame) { return frame && frame->m_shared && !frame->done() && includesWindow(frame->m_session); });
 }
 
+// a managed session is keyed by its client: it ends with the client, or the
+// next client at the same address would get it. The late signal runs once
+// the client's frames are gone.
 CScreenshareManager::SManagedSession::SManagedSession(UP<CScreenshareSession>&& session) : m_session(std::move(session)) {
-    ;
+    clientDestroyed.parent          = this;
+    clientDestroyed.listener.notify = [](wl_listener* listener, void* data) {
+        decltype(clientDestroyed)* wrap = wl_container_of(listener, wrap, listener);
+        if (!g_pCompositor->m_isShuttingDown)
+            wrap->parent->m_session->stop();
+    };
+    wl_client_add_destroy_late_listener(m_session->m_client, &clientDestroyed.listener);
+}
+
+CScreenshareManager::SManagedSession::~SManagedSession() {
+    wl_list_remove(&clientDestroyed.listener.link);
 }
