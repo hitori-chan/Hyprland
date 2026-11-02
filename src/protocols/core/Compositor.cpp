@@ -668,6 +668,10 @@ void CWLSurfaceResource::commitState(SSurfaceState& state) {
     auto lastTexture = m_current.texture;
     m_current.updateFrom(state);
 
+    // the barrier's fifo object is gone (see ~CFifoResource), or going: nothing would clear it
+    if (m_fifo.expired())
+        m_current.waitingOnPresentation = false;
+
     if (m_current.buffer) {
         if (m_current.buffer->isSynchronous())
             m_current.updateSynchronousTexture(lastTexture);

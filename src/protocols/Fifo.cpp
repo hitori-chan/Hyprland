@@ -117,7 +117,15 @@ CFifoResource::CFifoResource(UP<CWpFifoV1>&& resource_, SP<CWLSurfaceResource> s
 }
 
 CFifoResource::~CFifoResource() {
-    ;
+    // only this object clears the surface's barrier, so the barrier and the
+    // updates it holds go with it. Mesa replaces the object a roundtrip apart
+    // on a swapchain recreate: the presents in between would leave the new
+    // object's updates waiting on a barrier nothing clears.
+    if (!m_surface || g_pCompositor->m_isShuttingDown)
+        return;
+
+    m_surface->m_current.waitingOnPresentation = false;
+    m_surface->m_stateQueue.unlockAll(LOCK_REASON_FIFO);
 }
 
 bool CFifoResource::good() {
