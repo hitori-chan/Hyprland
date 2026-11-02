@@ -3,6 +3,8 @@ BUILDDIR ?= ./build
 CMAKE_BUILD_TYPE := Release
 CMAKE_ARGS = -DCMAKE_BUILD_TYPE:STRING=$(CMAKE_BUILD_TYPE) -DCMAKE_INSTALL_PREFIX:STRING=$(PREFIX)
 CMAKE_BUILDTYPE_FILE = $(BUILDDIR)/cmake_last_build_type
+# the commit too: src/version.h is stamped at configure time
+CMAKE_LAST_BUILD = $(CMAKE_BUILD_TYPE)+$(CMAKE_ARGS)+$(shell git rev-parse HEAD 2>/dev/null)
 CMAKE_GENERATE_CMD = cmake -Wno-unused-cli $(CMAKE_ARGS) -S . -B $(BUILDDIR)
 CMAKE_BUILD_CMD = cmake --build $(BUILDDIR) --config $(CMAKE_BUILD_TYPE) --target all -j`nproc 2>/dev/null || getconf NPROCESSORS_CONF`
 
@@ -16,12 +18,12 @@ stub:
 $(CMAKE_BUILDTYPE_FILE):
 	mkdir -p "$(BUILDDIR)"
 	if [ ! -f "$(CMAKE_BUILDTYPE_FILE)" ]; then $(CMAKE_GENERATE_CMD); fi
-	echo "$(CMAKE_BUILD_TYPE)+$(CMAKE_ARGS)" > "$(CMAKE_BUILDTYPE_FILE)"
+	echo "$(CMAKE_LAST_BUILD)" > "$(CMAKE_BUILDTYPE_FILE)"
 
-# Regenerate when CMake options have changed, then build
+# Regenerate when CMake options or the commit have changed, then build
 cmake_smartbuild: $(CMAKE_BUILDTYPE_FILE)
-	read lastbuild < "$(CMAKE_BUILDTYPE_FILE)" && test "$$lastbuild" = "$(CMAKE_BUILD_TYPE)+$(CMAKE_ARGS)" || { \
-		echo "$(CMAKE_BUILD_TYPE)+$(CMAKE_ARGS)" > "$(CMAKE_BUILDTYPE_FILE)"; \
+	read lastbuild < "$(CMAKE_BUILDTYPE_FILE)" && test "$$lastbuild" = "$(CMAKE_LAST_BUILD)" || { \
+		echo "$(CMAKE_LAST_BUILD)" > "$(CMAKE_BUILDTYPE_FILE)"; \
 		$(CMAKE_GENERATE_CMD); \
 	}
 	$(CMAKE_BUILD_CMD)
