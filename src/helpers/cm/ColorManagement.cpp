@@ -423,7 +423,7 @@ static RGBAColor toLinearRGB(RGBAColor color, eTransferFunction tf) {
         case CM_TRANSFER_FUNCTION_GAMMA28: return tfGamma(color, 2.8);
         case CM_TRANSFER_FUNCTION_HLG: return tfInvHLG(color);
         case CM_TRANSFER_FUNCTION_EXT_SRGB: return tfInvExtSRGB(color);
-        case CM_TRANSFER_FUNCTION_BT1886: return tfInvBT1886(color);
+        case CM_TRANSFER_FUNCTION_BT1886: return tfGamma(color, 2.4);
         case CM_TRANSFER_FUNCTION_ST240: return tfInvST240(color);
         case CM_TRANSFER_FUNCTION_LOG_100: return tfLog(color, 2.0);
         case CM_TRANSFER_FUNCTION_LOG_316: return tfLog(color, 2.5);
@@ -442,7 +442,7 @@ static RGBAColor fromLinearRGB(RGBAColor color, eTransferFunction tf) {
         case CM_TRANSFER_FUNCTION_GAMMA28: return tfGamma(color, 1.0 / 2.8);
         case CM_TRANSFER_FUNCTION_HLG: return tfHLG(color);
         case CM_TRANSFER_FUNCTION_EXT_SRGB: return tfExtSRGB(color);
-        case CM_TRANSFER_FUNCTION_BT1886: return tfBT1886(color);
+        case CM_TRANSFER_FUNCTION_BT1886: return tfGamma(color, 1.0 / 2.4);
         case CM_TRANSFER_FUNCTION_ST240: return tfST240(color);
         case CM_TRANSFER_FUNCTION_LOG_100: return tfInvLog(color, 2.0, 0.01);
         case CM_TRANSFER_FUNCTION_LOG_316: return tfInvLog(color, 2.5, sqrt(10.0) / 1000.0);
