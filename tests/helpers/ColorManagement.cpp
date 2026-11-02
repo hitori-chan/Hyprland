@@ -1,6 +1,7 @@
 #include <helpers/cm/ColorManagement.hpp>
 #include <render/types.hpp>
 
+#include <cmath>
 #include <gtest/gtest.h>
 
 using namespace NColorManagement;
@@ -134,4 +135,19 @@ TEST(ColorManagement, ContentMaxLuminancePrefersMetadata) {
     // Metadata can't push the peak past what the encoding can carry.
     description.maxCLL = 4000;
     EXPECT_FLOAT_EQ(description.getContentMaxLuminance(1000.F), 1000.F);
+}
+
+TEST(ColorManagement, BT1886DecodesWithTheDisplayPower) {
+    // a display EOTF: a 2.4 power over the TF's range, not the inverse of
+    // BT.709's camera curve (0.5 decodes to 0.19 of the range, not 0.26)
+    const auto source = CImageDescription::from(SImageDescription{
+        .transferFunction = CM_TRANSFER_FUNCTION_BT1886,
+        .primariesNameSet = true,
+        .primariesNamed   = CM_PRIMARIES_SRGB,
+    });
+    for (const auto value : {0.0, 0.5, 1.0}) {
+        const auto decoded = convertWithoutTonemapping({{.r = value, .g = value, .b = value, .a = 1.0}}, source, LINEAR_NN_IMAGE_DESCRIPTION);
+        expectNeutralColor(decoded, 0.01 + std::pow(value, 2.4) * (100.0 - 0.01));
+        expectNeutralColor(convertWithoutTonemapping(decoded, LINEAR_NN_IMAGE_DESCRIPTION, source), value);
+    }
 }
