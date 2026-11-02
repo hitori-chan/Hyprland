@@ -76,6 +76,15 @@ void CSurfaceStateQueue::unlockFirst(eLockReason reason) {
     tryProcess();
 }
 
+void CSurfaceStateQueue::unlockAll(eLockReason reason) {
+    ASSERT(reason != LOCK_REASON_NONE);
+    for (const auto& it : m_queue) {
+        it->lockMask &= ~reason;
+    }
+
+    tryProcess();
+}
+
 auto CSurfaceStateQueue::find(const WP<SSurfaceState>& state) -> std::deque<UP<SSurfaceState>>::iterator {
     if (state.expired())
         return m_queue.end();
