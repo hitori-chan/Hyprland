@@ -1605,10 +1605,14 @@ void CWindow::mapWindow() {
     if (isFloating() && Fullscreen::controller()->isFullscreen(m_self.lock()))
         m_bornFullscreen = true;
 
-    if (m_fullscreenPolicy->toldPendingFullscreen()) {
-        m_fullscreenPolicy->setToldPendingFullscreen(false);
-        if (Fullscreen::controller()->getFullscreenModes(m_self.lock()).client != Fullscreen::FSMODE_FULLSCREEN)
-            m_backend->setFullscreen(false);
+    if (const auto TOLD = m_fullscreenPolicy->toldPendingMode(); TOLD != Fullscreen::FSMODE_NONE) {
+        m_fullscreenPolicy->setToldPendingMode(Fullscreen::FSMODE_NONE);
+        if (Fullscreen::controller()->getFullscreenModes(m_self.lock()).client != TOLD) {
+            if (TOLD == Fullscreen::FSMODE_FULLSCREEN)
+                m_backend->setFullscreen(false);
+            else
+                m_backend->setMaximized(false);
+        }
     }
 
     // recheck idle inhibitors
@@ -1832,17 +1836,22 @@ void CWindow::commitWindow(bool initialCommit) {
         // try to calculate static rules already for any floats
         m_ruleApplicator->readStaticRules(true);
 
-        // a fullscreen ask made before the first configure is told in it, at
-        // the output's size: told windowed, a client sizes its first buffers
-        // (glmark2 also its viewport) for a frame it never shows. Map rules
-        // on the ask and takes a refusal back.
-        if (const auto& ASK = m_fullscreenPolicy->pendingClientRequest(); ASK.mode == Fullscreen::FSMODE_FULLSCREEN && !m_backend->isX11()) {
+        // a fullscreen or maximize ask made before the first configure is
+        // told in it, at the output's box or its work area: told windowed, a
+        // client sizes its first buffers (glmark2 also its viewport) for a
+        // frame it never shows. Map rules on the ask, sets the exact box
+        // (borders exist only then) and takes a refusal back.
+        if (const auto& ASK = m_fullscreenPolicy->pendingClientRequest(); ASK.mode.has_value() && *ASK.mode != Fullscreen::FSMODE_NONE && !m_backend->isX11()) {
             // map's own default: the focused monitor (the window has none yet)
             const auto MONITOR = ASK.monitor ? State::monitorState()->query().id(*ASK.monitor).run() : Desktop::focusState()->monitor();
             if (MONITOR) {
-                m_fullscreenPolicy->setToldPendingFullscreen(true);
-                m_backend->setFullscreen(true);
-                m_backend->configure(MONITOR->logicalBox(), MONITOR);
+                const bool FULLSCREEN = *ASK.mode == Fullscreen::FSMODE_FULLSCREEN;
+                m_fullscreenPolicy->setToldPendingMode(*ASK.mode);
+                if (FULLSCREEN)
+                    m_backend->setFullscreen(true);
+                else
+                    m_backend->setMaximized(true);
+                m_backend->configure(FULLSCREEN ? MONITOR->logicalBox() : MONITOR->logicalBoxMinusReserved(), MONITOR);
                 return;
             }
         }

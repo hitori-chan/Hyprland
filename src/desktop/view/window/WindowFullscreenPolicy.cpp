@@ -47,12 +47,12 @@ SPendingClientFullscreenRequest CWindowFullscreenPolicy::consumePendingClientReq
     return request;
 }
 
-bool CWindowFullscreenPolicy::toldPendingFullscreen() const {
-    return m_toldPendingFullscreen;
+Fullscreen::eFullscreenMode CWindowFullscreenPolicy::toldPendingMode() const {
+    return m_toldPendingMode;
 }
 
-void CWindowFullscreenPolicy::setToldPendingFullscreen(bool told) {
-    m_toldPendingFullscreen = told;
+void CWindowFullscreenPolicy::setToldPendingMode(Fullscreen::eFullscreenMode mode) {
+    m_toldPendingMode = mode;
 }
 
 bool CWindowFullscreenPolicy::pinFullscreened() const {
