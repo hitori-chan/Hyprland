@@ -134,7 +134,7 @@ vec3 toLinearRGB(vec3 color, int tf) {
         case CM_TRANSFER_FUNCTION_GAMMA28: return pow(max(color, vec3(0.0)), vec3(2.8));
         case CM_TRANSFER_FUNCTION_HLG: return tfInvHLG(color);
         case CM_TRANSFER_FUNCTION_EXT_SRGB: return tfInvExtSRGB(color);
-        case CM_TRANSFER_FUNCTION_BT1886: return tfInvBT1886(color);
+        case CM_TRANSFER_FUNCTION_BT1886: return pow(max(color, vec3(0.0)), vec3(2.4));
         case CM_TRANSFER_FUNCTION_ST240: return tfInvST240(color);
         case CM_TRANSFER_FUNCTION_LOG_100: return mix(exp((color - 1.0) * 2.0 * log(10.0)), vec3(0.0), lessThanEqual(color, vec3(0.0)));
         case CM_TRANSFER_FUNCTION_LOG_316: return mix(exp((color - 1.0) * 2.5 * log(10.0)), vec3(0.0), lessThanEqual(color, vec3(0.0)));
@@ -168,7 +168,7 @@ vec3 fromLinearRGB(vec3 color, int tf) {
         case CM_TRANSFER_FUNCTION_GAMMA28: return pow(max(color, vec3(0.0)), vec3(1.0 / 2.8));
         case CM_TRANSFER_FUNCTION_HLG: return tfHLG(color);
         case CM_TRANSFER_FUNCTION_EXT_SRGB: return tfExtSRGB(color);
-        case CM_TRANSFER_FUNCTION_BT1886: return tfBT1886(color);
+        case CM_TRANSFER_FUNCTION_BT1886: return pow(max(color, vec3(0.0)), vec3(1.0 / 2.4));
         case CM_TRANSFER_FUNCTION_ST240: return tfST240(color);
         case CM_TRANSFER_FUNCTION_LOG_100: return mix(1.0 + log(color) / log(10.0) / 2.0, vec3(0.0), lessThanEqual(color, vec3(0.01)));
         case CM_TRANSFER_FUNCTION_LOG_316: return mix(1.0 + log(color) / log(10.0) / 2.5, vec3(0.0), lessThanEqual(color, vec3(sqrt(10.0) / 1000.0)));
