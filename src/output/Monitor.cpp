@@ -122,6 +122,7 @@ void CMonitor::emitReservedChangedIfNeeded() {
 }
 
 void CMonitor::onConnect(bool noRule) {
+    m_primaryTakesCache = {};
     Event::bus()->m_events.monitor.preAdded.emit(m_self.lock());
     CScopeGuard x = {[]() { State::monitorLayoutController()->arrange(); }};
 
@@ -2007,6 +2008,14 @@ uint16_t CMonitor::isDSBlocked(bool full) {
             return reasons;
     }
 
+    // nor a layout the primary plane does not take: the test would fail and
+    // its rollback of the output's format reconfigure the swapchain every frame
+    if (params.success && !primaryTakes(params.format, params.modifier)) {
+        reasons |= DS_BLOCK_FORMAT;
+        if (!full)
+            return reasons;
+    }
+
     const bool surfaceIsHDR   = PSURFACE->m_colorManagement.valid() && PSURFACE->m_colorManagement->isHDR();
     const bool surfaceIsScRGB = surfaceIsHDR && PSURFACE->m_colorManagement->isWindowsScRGB();
 
@@ -2066,8 +2075,8 @@ bool CMonitor::attemptDirectScanout() {
     LOG(Log::TRACE, "attemptDirectScanout: surface {:x} passed, will attempt, buffer {} fmt: {} -> {} (mod {})", rc<uintptr_t>(PSURFACE.get()),
         rc<uintptr_t>(PSURFACE->m_current.buffer.m_buffer.get()), m_drmFormat, params.format, params.modifier);
 
-    // FIXME: make sure the buffer actually follows the available scanout dmabuf formats
-    // and comes from the appropriate device. This may implode on multi-gpu!!
+    // FIXME: make sure the buffer comes from the appropriate device (its
+    // layout is checked against the primary plane's). This may implode on multi-gpu!!
 
     // entering into scanout, so save monitor format
     if (m_lastScanout.expired())
@@ -2178,6 +2187,25 @@ void CMonitor::handleDSleave() {
     m_drmFormat   = m_prevDrmFormat;
     m_blurFBDirty = true;
     m_damage.damageEntire();
+}
+
+bool CMonitor::primaryTakes(uint32_t format, uint64_t modifier) {
+    if (m_primaryTakesCache.format == format && m_primaryTakesCache.modifier == modifier)
+        return m_primaryTakesCache.takes;
+
+    bool takes = false;
+    for (const auto& f : m_output->getRenderFormats()) {
+        if (f.drmFormat != format)
+            continue;
+
+        // aquamarine lists INVALID for a plane that takes implicit buffers, so an
+        // implicit buffer matches it and an explicit one needs its own modifier
+        takes = std::ranges::contains(f.modifiers, modifier);
+        break;
+    }
+
+    m_primaryTakesCache = {.format = format, .modifier = modifier, .takes = takes};
+    return takes;
 }
 
 bool CMonitor::canAttemptDirectScanoutFast() const {
