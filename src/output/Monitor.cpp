@@ -123,6 +123,7 @@ void CMonitor::emitReservedChangedIfNeeded() {
 
 void CMonitor::onConnect(bool noRule) {
     m_primaryTakesCache = {};
+    m_dsFailedOn        = {};
     Event::bus()->m_events.monitor.preAdded.emit(m_self.lock());
     CScopeGuard x = {[]() { State::monitorLayoutController()->arrange(); }};
 
@@ -1838,12 +1839,12 @@ uint32_t CMonitor::isSolitaryBlocked(bool full) {
 void CMonitor::recheckSolitary() {
     m_solitaryClient.reset(); // reset it, if we find one it will be set.
 
+    // a failed direct-scanout test is tried again once solitary rendering ends
     const auto PWORKSPACE = m_activeWorkspace;
-    if (!PWORKSPACE)
+    if (!PWORKSPACE || isSolitaryBlocked()) {
+        m_dsFailedOn = {};
         return;
-
-    if (isSolitaryBlocked())
-        return;
+    }
 
     m_solitaryClient = Fullscreen::controller()->getFullscreenWindow(m_self.lock());
 }
@@ -2016,6 +2017,12 @@ uint16_t CMonitor::isDSBlocked(bool full) {
             return reasons;
     }
 
+    if (params.success && m_dsFailedOn.surface.lock() == PSURFACE && m_dsFailedOn.format == params.format && m_dsFailedOn.modifier == params.modifier) {
+        reasons |= DS_BLOCK_FAILED;
+        if (!full)
+            return reasons;
+    }
+
     const bool surfaceIsHDR   = PSURFACE->m_colorManagement.valid() && PSURFACE->m_colorManagement->isHDR();
     const bool surfaceIsScRGB = surfaceIsHDR && PSURFACE->m_colorManagement->isWindowsScRGB();
 
@@ -2110,6 +2117,7 @@ bool CMonitor::attemptDirectScanout() {
 
     if (NEEDS_TEST && !m_state.test()) {
         LOG(Log::TRACE, "attemptDirectScanout: failed basic test");
+        m_dsFailedOn = {.surface = PSURFACE, .format = params.format, .modifier = params.modifier};
         return false;
     }
 
