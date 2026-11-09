@@ -417,6 +417,14 @@ namespace Monitor {
             bool     takes    = false;
         } m_primaryTakesCache;
 
+        // a surface's buffer layout whose direct-scanout test failed: not tried
+        // again, as each try moves the swapchain to its format and back
+        struct {
+            WP<CWLSurfaceResource> surface;
+            uint32_t               format   = DRM_FORMAT_INVALID;
+            uint64_t               modifier = DRM_FORMAT_MOD_INVALID;
+        } m_dsFailedOn;
+
         // Resources
         UP<Monitor::CMonitorResources> m_resources;
         // cached should contain one of predefined descriptions for FP16: sRGB primaries with either linear TF by default and in HDR mode or monitor's TF in SDR with render:fp16_sdr_tf = 0
