@@ -214,6 +214,7 @@ namespace Monitor {
             DS_BLOCK_DMA       = (1 << 10),
             DS_BLOCK_FAILED    = (1 << 11),
             DS_BLOCK_CM        = (1 << 12),
+            DS_BLOCK_FORMAT    = (1 << 13),
 
             DS_CHECKS_COUNT = 14,
         };
@@ -399,11 +400,20 @@ namespace Monitor {
         void                clearModeRetry();
         void                updateVCGTRamps();
         bool                trySetFormat(std::span<const uint32_t> formats);
+        bool                primaryTakes(uint32_t format, uint64_t modifier);
 
         bool                m_doneScheduled  = false;
         bool                m_vcgtRampsSet   = false;
         int                 m_modeRetryCount = 0;
         SP<CEventLoopTimer> m_modeRetryTimer;
+
+        // primaryTakes()'s last answer: the primary plane's formats are fixed
+        // for an output, a client's buffer layout changes rarely
+        struct {
+            uint32_t format   = DRM_FORMAT_INVALID;
+            uint64_t modifier = DRM_FORMAT_MOD_INVALID;
+            bool     takes    = false;
+        } m_primaryTakesCache;
 
         // Resources
         UP<Monitor::CMonitorResources> m_resources;
