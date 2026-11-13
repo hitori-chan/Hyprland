@@ -2,6 +2,7 @@
 #include "../desktop/view/window/WindowEffectsController.hpp"
 #include "../desktop/view/window/WindowPresentation.hpp"
 #include "../helpers/MiscFunctions.hpp"
+#include "../helpers/Format.hpp"
 #include "../macros.hpp"
 #include "SharedDefs.hpp"
 #include "../helpers/TransferFunction.hpp"
@@ -2816,11 +2817,14 @@ bool CMonitorState::updateSwapchain() {
         return true;
     }
 
-    if (OPTIONS.format == m_owner->m_drmFormat && OPTIONS.scanout && OPTIONS.length == 3 && OPTIONS.size == MODE->pixelSize)
+    // the swapchain is what the compositor renders into: a buffer scanned out in a YUV format (the monitor's format while
+    // it is) leaves it in the format it renders in, which, unlike the YUV one, it can allocate at the mode's size
+    const auto FORMAT = NFormatUtils::isFormatYUV(m_owner->m_drmFormat) && OPTIONS.format != DRM_FORMAT_INVALID ? OPTIONS.format : m_owner->m_drmFormat;
+    if (OPTIONS.format == FORMAT && OPTIONS.scanout && OPTIONS.length == 3 && OPTIONS.size == MODE->pixelSize)
         return true;
 
     auto options    = OPTIONS;
-    options.format  = m_owner->m_drmFormat;
+    options.format  = FORMAT;
     options.scanout = true;
     options.length  = 3;
     options.size    = MODE->pixelSize;
