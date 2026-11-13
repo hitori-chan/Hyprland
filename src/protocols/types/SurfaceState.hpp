@@ -106,6 +106,7 @@ struct SSurfaceState {
         CBox     source;
     } viewport;
     Vector2D sourceSize();
+    void     updateSize(); // the surface's size from its buffer, viewport, scale and transform
 
     // drm syncobj protocol surface state
     CDRMSyncPointState  acquire;
