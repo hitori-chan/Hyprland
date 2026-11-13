@@ -18,6 +18,18 @@ Vector2D SSurfaceState::sourceSize() {
     return trc / scale;
 }
 
+void SSurfaceState::updateSize() {
+    // a synchronous buffer is released once its texture holds the content
+    if (!buffer && !texture)
+        size = {};
+    else if (viewport.hasDestination)
+        size = viewport.destination;
+    else if (viewport.hasSource)
+        size = viewport.source.size();
+    else
+        size = (transform % 2 == 1 ? Vector2D{bufferSize.y, bufferSize.x} : bufferSize) / scale;
+}
+
 bool SSurfaceState::consumeBufferDamage() const {
     return buffer && !buffer->isSynchronous();
 }
@@ -250,6 +262,11 @@ void SSurfaceState::updateFrom(SSurfaceState& ref) {
 
     if (ref.updated.bits.colorRepresentation)
         colorRepresentation = ref.colorRepresentation;
+
+    // a new viewport, scale or transform resizes the surface without a new buffer (a single-pixel
+    // background stretched over the window), and a merged state's size may predate its viewport
+    if (ref.updated.bits.buffer || ref.updated.bits.viewport || ref.updated.bits.scale || ref.updated.bits.transform)
+        updateSize();
 
     if (ref.updated.bits.acquire)
         acquire = ref.acquire;

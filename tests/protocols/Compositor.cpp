@@ -227,6 +227,29 @@ TEST_F(CSurfaceCommitTest, ColorRepresentationOnlyCommitReselectsTexture) {
     EXPECT_EQ(surf->m_current.texture, buf->m_texture);
 }
 
+TEST_F(CSurfaceCommitTest, ScaleAndTransformResizeWithoutNewBuffer) {
+    auto surf = surface();
+    auto buf  = buffer();
+    buf->size = {32, 16};
+    attach(surf, buf);
+    EXPECT_EQ(surf->m_current.size, Vector2D(32, 16));
+
+    // The same buffer stays attached: its scale and transform still resize the surface.
+    request(surf->id(), 8, {2}); // wl_surface.set_buffer_scale
+    commit(surf);
+    EXPECT_EQ(surf->m_current.size, Vector2D(16, 8));
+
+    request(surf->id(), 7, {1}); // wl_surface.set_buffer_transform: 90 degrees
+    commit(surf);
+    EXPECT_EQ(surf->m_current.size, Vector2D(8, 16));
+
+    // A synchronous buffer is released after its upload; its texture keeps the content and the size.
+    surf->m_current.buffer = {};
+    request(surf->id(), 8, {1}); // wl_surface.set_buffer_scale
+    commit(surf);
+    EXPECT_EQ(surf->m_current.size, Vector2D(16, 32));
+}
+
 TEST_F(CSurfaceCommitTest, SynchronizedNullBufferUnmapsOnlyOnParentCommit) {
     auto parent = surface(), child = surface();
     auto [sub, id] = subsurface(child, parent);
