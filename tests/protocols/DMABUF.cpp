@@ -588,6 +588,13 @@ class CLifecycleOutput : public Aquamarine::IOutput {
     }
 };
 
+class CSwapchainTestOutput : public CLifecycleOutput {
+  public:
+    bool test() override {
+        return true;
+    }
+};
+
 // Use the real three-buffer rotation to observe missing/double rollback without
 // a DRM allocator or a production seam for intercepting CSwapchain::rollback.
 class CLifecycleAllocator : public Aquamarine::IAllocator {
@@ -1669,3 +1676,29 @@ TEST_P(CMesaDMABUFRejectedTest, ClosesIncomingPrimeFD) {
 
 INSTANTIATE_TEST_SUITE_P(InvalidDimensionsAndOffset, CMesaDMABUFRejectedTest,
                          ::testing::Values(std::array<int32_t, 3>{0, 1, 0}, std::array<int32_t, 3>{1, 0, 0}, std::array<int32_t, 3>{1, 1, -1}));
+
+// A buffer scanned out in a YUV format makes it the monitor's format; the render swapchain keeps the format it renders in
+// (a YUV one at the mode's size is no render target, and GBM refuses it), an RGB one still goes to it
+TEST_F(CRenderLifecycleTest, YUVScanoutKeepsTheSwapchainFormat) {
+    auto output  = makeShared<CSwapchainTestOutput>();
+    output->name = "yuv-swapchain-test";
+    output->state->setFormat(DRM_FORMAT_XRGB8888);
+    const auto MODE = makeShared<Aquamarine::SOutputMode>(Aquamarine::SOutputMode{.pixelSize = {64, 48}});
+    output->state->setMode(MODE);
+    output->swapchain = Aquamarine::CSwapchain::create(m_allocator, nullptr);
+    ASSERT_TRUE(output->swapchain->reconfigure({.length = 3, .size = {64, 48}, .format = DRM_FORMAT_XRGB8888, .scanout = true}));
+    auto monitor    = makeShared<Monitor::CMonitor>(output);
+    monitor->m_self = monitor;
+
+    monitor->m_drmFormat = DRM_FORMAT_NV12;
+    EXPECT_TRUE(monitor->m_state.test());
+    EXPECT_EQ(output->swapchain->currentOptions().format, DRM_FORMAT_XRGB8888);
+
+    monitor->m_drmFormat = DRM_FORMAT_P010;
+    EXPECT_TRUE(monitor->m_state.test());
+    EXPECT_EQ(output->swapchain->currentOptions().format, DRM_FORMAT_XRGB8888);
+
+    monitor->m_drmFormat = DRM_FORMAT_XRGB2101010;
+    EXPECT_TRUE(monitor->m_state.test());
+    EXPECT_EQ(output->swapchain->currentOptions().format, DRM_FORMAT_XRGB2101010);
+}
