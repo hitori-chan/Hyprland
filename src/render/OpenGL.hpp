@@ -6,6 +6,7 @@
 #include "../helpers/time/Timer.hpp"
 #include "../helpers/math/Math.hpp"
 #include "../helpers/Format.hpp"
+#include "../helpers/cm/YCbCr.hpp"
 #include "../helpers/DeformableMesh.hpp"
 #include "../helpers/sync/SyncTimeline.hpp"
 #include <GLES3/gl32.h>
@@ -237,7 +238,7 @@ namespace Render::GL {
 
         std::vector<SDRMFormat>                   getDRMFormats();
         std::vector<uint64_t>                     getDRMFormatModifiers(DRMFormat format);
-        EGLImageKHR                               createEGLImage(const Aquamarine::SDMABUFAttrs& attrs);
+        EGLImageKHR                               createEGLImage(const Aquamarine::SDMABUFAttrs& attrs, const NColorManagement::SYCbCr& ycbcr = {});
 
         bool                                      initShaders(const std::string& path = "");
 
@@ -289,6 +290,7 @@ namespace Render::GL {
             bool IMG_context_priority               = false;
             bool EXT_create_context_robustness      = false;
             bool EGL_ANDROID_native_fence_sync_ext  = false;
+            bool OES_EGL_image_external_essl3       = false;
         } m_exts;
 
         enum eEGLContextVersion : uint8_t {
@@ -350,7 +352,7 @@ namespace Render::GL {
         GLint                                                m_pressedHistoryTouched   = 0;
 
         //
-        std::optional<std::vector<uint64_t>> getModsForFormat(EGLint format);
+        std::optional<std::vector<uint64_t>> getModsForFormat(EGLint format, bool allowExternal);
 
         void passCMUniforms(WP<CShader>, const NColorManagement::PImageDescription imageDescription, const NColorManagement::PImageDescription targetImageDescription,
                             bool modifySDR, float sdrMinLuminance, int sdrMaxLuminance, const SCMSettings& settings);

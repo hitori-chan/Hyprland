@@ -377,8 +377,9 @@ CHyprOpenGLImpl::CHyprOpenGLImpl() : m_drmFD(g_pCompositor->m_drmRenderNode.fd >
     LOG(Log::DEBUG, "Renderer: {}", rc<const char*>(glGetString(GL_RENDERER)));
     LOG(Log::DEBUG, "Supported extensions: ({}) {}", std::ranges::count(m_extensions, ' '), m_extensions);
 
-    m_exts.EXT_read_format_bgra        = m_extensions.contains("GL_EXT_read_format_bgra");
-    m_exts.EXT_color_buffer_half_float = m_extensions.contains("GL_EXT_color_buffer_half_float") || m_extensions.contains("GL_EXT_color_buffer_float");
+    m_exts.EXT_read_format_bgra         = m_extensions.contains("GL_EXT_read_format_bgra");
+    m_exts.EXT_color_buffer_half_float  = m_extensions.contains("GL_EXT_color_buffer_half_float") || m_extensions.contains("GL_EXT_color_buffer_float");
+    m_exts.OES_EGL_image_external_essl3 = m_extensions.contains("GL_OES_EGL_image_external_essl3");
 
     RASSERT(m_extensions.contains("GL_EXT_texture_format_BGRA8888"), "GL_EXT_texture_format_BGRA8888 support by the GPU driver is required");
 
@@ -473,7 +474,7 @@ CHyprOpenGLImpl::~CHyprOpenGLImpl() {
         gbm_device_destroy(m_gbmDevice);
 }
 
-std::optional<std::vector<uint64_t>> CHyprOpenGLImpl::getModsForFormat(EGLint format) {
+std::optional<std::vector<uint64_t>> CHyprOpenGLImpl::getModsForFormat(EGLint format, bool allowExternal) {
     // TODO: return std::expected when clang supports it
 
     if (!m_exts.EXT_image_dma_buf_import_modifiers)
@@ -506,7 +507,7 @@ std::optional<std::vector<uint64_t>> CHyprOpenGLImpl::getModsForFormat(EGLint fo
 
     bool linearIsExternal = false;
     for (size_t i = 0; i < std::min(mods.size(), external.size()); ++i) {
-        if (external[i]) {
+        if (external[i] && !allowExternal) {
             if (mods[i] == DRM_FORMAT_MOD_LINEAR)
                 linearIsExternal = true;
             continue;
@@ -565,13 +566,15 @@ void CHyprOpenGLImpl::initDRMFormats() {
     dmaFormats.reserve(formats.size());
 
     for (auto const& fmt : formats) {
-        // Do not advertise YUV until the renderer supports it.
-        if (NFormatUtils::isFormatYUV(fmt))
+        // YUV is sampled through an external texture (CGLTexture), where drivers
+        // usually mark every modifier external-only
+        const bool YUV = NFormatUtils::isFormatYUV(fmt);
+        if (YUV && !m_exts.OES_EGL_image_external_essl3)
             continue;
 
         std::vector<uint64_t> mods;
         if (!DISABLE_MODS) {
-            auto ret = getModsForFormat(fmt);
+            auto ret = getModsForFormat(fmt, YUV);
             if (!ret.has_value())
                 continue;
 
@@ -631,8 +634,8 @@ void CHyprOpenGLImpl::initDRMFormats() {
         LOG(Log::WARN, "Your GPU does not support rendering to FP16 buffers, some effects and CM settings might be unavailable.");
 }
 
-EGLImageKHR CHyprOpenGLImpl::createEGLImage(const Aquamarine::SDMABUFAttrs& attrs) {
-    std::array<EGLint, 50> attribs;
+EGLImageKHR CHyprOpenGLImpl::createEGLImage(const Aquamarine::SDMABUFAttrs& attrs, const NColorManagement::SYCbCr& ycbcr) {
+    std::array<EGLint, 64> attribs;
     size_t                 idx = 0;
 
     attribs[idx++] = EGL_WIDTH;
@@ -668,6 +671,18 @@ EGLImageKHR CHyprOpenGLImpl::createEGLImage(const Aquamarine::SDMABUFAttrs& attr
             attribs[idx++] = attrNames[i].modhi;
             attribs[idx++] = sc<uint32_t>(attrs.modifier >> 32);
         }
+    }
+
+    // without hints Mesa converts with BT.601's matrix at limited range
+    if (NFormatUtils::isFormatYUV(attrs.format)) {
+        attribs[idx++] = EGL_YUV_COLOR_SPACE_HINT_EXT;
+        switch (ycbcr.encoding) {
+            case NColorManagement::CM_YCBCR_BT601: attribs[idx++] = EGL_ITU_REC601_EXT; break;
+            case NColorManagement::CM_YCBCR_BT709: attribs[idx++] = EGL_ITU_REC709_EXT; break;
+            case NColorManagement::CM_YCBCR_BT2020: attribs[idx++] = EGL_ITU_REC2020_EXT; break;
+        }
+        attribs[idx++] = EGL_SAMPLE_RANGE_HINT_EXT;
+        attribs[idx++] = ycbcr.fullRange ? EGL_YUV_FULL_RANGE_EXT : EGL_YUV_NARROW_RANGE_EXT;
     }
 
     attribs[idx++] = EGL_IMAGE_PRESERVED_KHR;
@@ -1445,9 +1460,7 @@ WP<CShader> CHyprOpenGLImpl::renderToFBInternal(CRenderContext& ctx, SP<ITexture
     switch (texType) {
         case TEXTURE_RGBA: shaderFeatures |= SH_FEAT_RGBA; break;
         case TEXTURE_RGBX: shaderFeatures &= ~SH_FEAT_RGBA; break;
-
-        // TODO set correct features
-        case TEXTURE_EXTERNAL: shader = getShaderVariant(SH_FRAG_EXT, SH_FEAT_ROUNDING | SH_FEAT_DISCARD | SH_FEAT_TINT | globalFeatures(ctx)); break; // might be unused
+        case TEXTURE_EXTERNAL: shaderFeatures |= SH_FEAT_EXTERNAL; break; // YUV, opaque
         default: RASSERT(false, "tex->m_iTarget unsupported!");
     }
 
@@ -1507,7 +1520,8 @@ WP<CShader> CHyprOpenGLImpl::renderToFBInternal(CRenderContext& ctx, SP<ITexture
     if (data.forceBlurBlend)
         shaderFeatures |= SH_FEAT_BLUR_ALPHA_MASK;
 
-    if (data.motionBlur.enabled)
+    // motion blur samples through a sampler2D
+    if (data.motionBlur.enabled && texType != TEXTURE_EXTERNAL)
         shaderFeatures |= SH_FEAT_MOTION_BLUR;
 
     if (data.discardActive)
@@ -1597,7 +1611,7 @@ WP<CShader> CHyprOpenGLImpl::renderToFBInternal(CRenderContext& ctx, SP<ITexture
     shader->setUniformFloat(SHADER_RADIUS, data.round);
     shader->setUniformFloat(SHADER_ROUNDING_POWER, data.roundingPower);
 
-    if (data.motionBlur.enabled) {
+    if (shaderFeatures & SH_FEAT_MOTION_BLUR) {
         CBox motionPrev   = data.motionBlur.previous;
         CBox motionCurr   = data.motionBlur.current;
         CBox motionSource = data.motionBlur.source;
