@@ -391,6 +391,8 @@ namespace Monitor {
         bool                                useFP16();
         NColorManagement::PImageDescription workBufferImageDescription();
         WP<Monitor::CMonitorResources>      resources();
+        // the current resources without making them: no GL, so callable outside a render pass
+        WP<Monitor::CMonitorResources> currentResources();
 
       private:
         void                updateMatrix();
@@ -421,10 +423,15 @@ namespace Monitor {
         // a surface's buffer layout whose direct-scanout test failed: not tried
         // again, as each try moves the swapchain to its format and back
         struct {
-            WP<CWLSurfaceResource> surface;
-            uint32_t               format   = DRM_FORMAT_INVALID;
-            uint64_t               modifier = DRM_FORMAT_MOD_INVALID;
+            WP<CWLSurfaceResource>                     surface;
+            uint32_t                                   format   = DRM_FORMAT_INVALID;
+            uint64_t                                   modifier = DRM_FORMAT_MOD_INVALID;
+            Aquamarine::COutputState::SBufferPlacement placement;
         } m_dsFailedOn;
+
+        // a video subsurface over a black fullscreen main surface, scanned out on the primary plane
+        std::optional<Aquamarine::COutputState::SBufferPlacement> videoPlacement(PHLWINDOW window, SP<CWLSurfaceResource> video);
+        bool                                                      videoBlockedByCM(SP<CWLSurfaceResource> video, const Aquamarine::COutputState::SBufferPlacement& placement);
 
         // Resources
         UP<Monitor::CMonitorResources> m_resources;

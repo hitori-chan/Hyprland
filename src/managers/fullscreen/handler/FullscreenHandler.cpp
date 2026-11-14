@@ -118,7 +118,7 @@ eFullscreenRequestResult IFullscreenHandler::requestFullscreen(const SFullscreen
     static auto PDIRECTSCANOUT = CConfigValue<Config::INTEGER>("render:direct_scanout");
 
     if (*PDIRECTSCANOUT == 1 || (*PDIRECTSCANOUT == 2 && WINDOW->getContentType() == NContentType::CONTENT_TYPE_GAME)) {
-        auto surf = WINDOW->getSolitaryResource();
+        auto surf = WINDOW->getScanoutResource();
         if (surf)
             g_pHyprRenderer->setSurfaceScanoutMode(surf, request.mode != FSMODE_NONE ? MONITOR : nullptr);
     }

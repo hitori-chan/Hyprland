@@ -1157,6 +1157,45 @@ SP<CWLSurfaceResource> CWindow::getSolitaryResource() const {
     return nullptr;
 }
 
+// a video client's layout (mpv's dmabuf-wayland): an opaque black main surface and one
+// visible subsurface over it carrying the picture, letterboxed and scaled
+SP<CWLSurfaceResource> CWindow::getVideoResource() const {
+    if (!m_wlSurface || !m_wlSurface->resource() || m_backend->isX11() || popupTreeSize())
+        return nullptr;
+
+    const auto RES = m_wlSurface->resource();
+
+    // what the plane leaves uncovered is black
+    const auto& SOLID = RES->m_current.solidColor;
+    if (!SOLID || SOLID->a < 1.F || SOLID->r != 0.F || SOLID->g != 0.F || SOLID->b != 0.F)
+        return nullptr;
+
+    SP<CWLSurfaceResource> video;
+    for (const auto& subsurface : RES->m_subsurfaces) {
+        if (!subsurface || !subsurface->m_surface)
+            continue;
+
+        const auto SURF = subsurface->m_surface.lock();
+        if (SURF->m_current.size.x <= 0 || SURF->m_current.size.y <= 0)
+            continue;
+
+        // one visible subsurface, above the main surface, with nothing of its own
+        if (video || subsurface->m_zIndex < 0 || SURF->hasVisibleSubsurface() || !SURF->m_current.texture || !SURF->m_current.buffer)
+            return nullptr;
+
+        video = SURF;
+    }
+
+    return video;
+}
+
+SP<CWLSurfaceResource> CWindow::getScanoutResource() const {
+    if (const auto SOLITARY = getSolitaryResource())
+        return SOLITARY;
+
+    return getVideoResource();
+}
+
 std::optional<Vector2D> CWindow::calculateExpression(const Math::SExpressionVec2& expr) {
     return m_target->calculateExpression(expr);
 }

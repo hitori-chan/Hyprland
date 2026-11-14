@@ -142,7 +142,8 @@ TEST_F(CDMABUFFormatTableTest, FilteringWithoutMonitorsRetainsRendererFormats) {
                   });
 }
 
-TEST_F(CDMABUFFormatTableTest, YUVIsOnlyAdvertisedForRendering) {
+TEST_F(CDMABUFFormatTableTest, YUVIsScannedOutOnlyInARendererLayout) {
+    // a plane takes a video only where the renderer can composite it instead
     const SDMABUFTranche renderer{
         .device  = 1,
         .formats = {{DRM_FORMAT_NV12, {I915_FORMAT_MOD_X_TILED}}},
@@ -152,12 +153,12 @@ TEST_F(CDMABUFFormatTableTest, YUVIsOnlyAdvertisedForRendering) {
                           SDMABUFTranche{
                               .device  = 1,
                               .flags   = ZWP_LINUX_DMABUF_FEEDBACK_V1_TRANCHE_FLAGS_SCANOUT,
-                              .formats = {{DRM_FORMAT_NV12, {I915_FORMAT_MOD_X_TILED}}, {DRM_FORMAT_XRGB8888, {I915_FORMAT_MOD_X_TILED}}},
+                              .formats = {{DRM_FORMAT_NV12, {I915_FORMAT_MOD_X_TILED, DRM_FORMAT_MOD_LINEAR}}, {DRM_FORMAT_XRGB8888, {I915_FORMAT_MOD_X_TILED}}},
                           });
 
     const CDMABUFFormatTable table{renderer, monitors};
     expectFormats(table, table.m_rendererTranche, {{DRM_FORMAT_NV12, I915_FORMAT_MOD_X_TILED}});
-    expectFormats(table, table.m_monitorTranches.front().second, {{DRM_FORMAT_XRGB8888, I915_FORMAT_MOD_X_TILED}});
+    expectFormats(table, table.m_monitorTranches.front().second, {{DRM_FORMAT_NV12, I915_FORMAT_MOD_X_TILED}, {DRM_FORMAT_XRGB8888, I915_FORMAT_MOD_X_TILED}});
 }
 
 class CDMABUFFeedbackOutput : public Aquamarine::IOutput {

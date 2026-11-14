@@ -71,16 +71,19 @@ CDMABUFFormatTable::CDMABUFFormatTable(SDMABUFTranche _rendererTranche, std::vec
     for (auto& [monitor, tranche] : m_monitorTranches) {
         tranche.indices.clear();
         for (auto const& fmt : tranche.formats) {
-            // YUV is never scanned out, see CMonitor::isDSBlocked
-            if (NFormatUtils::isFormatYUV(fmt.drmFormat))
-                continue;
+            const bool YUV      = NFormatUtils::isFormatYUV(fmt.drmFormat);
+            const auto RENDERER = std::ranges::find_if(m_rendererTranche.formats, [&fmt](const SDRMFormat& f) { return f.drmFormat == fmt.drmFormat; });
 
             for (auto const& mod : fmt.modifiers) {
                 LOG(Log::TRACE, "[DMA] Monitor format 0x{:x} ({}) with mod 0x{:x} ({})", fmt.drmFormat, NFormatUtils::drmFormatName(fmt.drmFormat), mod,
                     NFormatUtils::drmModifierName(mod));
                 // FIXME: recheck this. DRM_FORMAT_MOD_INVALID is allowed by the proto "For legacy support". DRM_FORMAT_MOD_LINEAR should be the most compatible mod
-                // apparently these can implode on planes, so don't use them
-                if (mod == DRM_FORMAT_MOD_INVALID || mod == DRM_FORMAT_MOD_LINEAR)
+                // apparently these can implode on planes, so don't use them. Decoders give linear YUV, which planes taking YUV take.
+                if (mod == DRM_FORMAT_MOD_INVALID || (mod == DRM_FORMAT_MOD_LINEAR && !YUV))
+                    continue;
+
+                // YUV only in a layout the renderer imports too, to composite what the plane refuses
+                if (YUV && (RENDERER == m_rendererTranche.formats.end() || !std::ranges::contains(RENDERER->modifiers, mod)))
                     continue;
                 auto [_, inserted] = formats.emplace(fmt.drmFormat, mod);
                 if (inserted) {

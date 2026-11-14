@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../../helpers/math/Math.hpp"
+#include "../../helpers/Color.hpp"
 #include "../../helpers/time/Time.hpp"
 #include "../../managers/eventLoop/EventLoopTimer.hpp"
 #include "../WaylandProtocol.hpp"
@@ -117,6 +118,9 @@ struct SSurfaceState {
     // texture of surface content, used for rendering
     SP<Render::ITexture> texture;
     void                 updateSynchronousTexture(SP<Render::ITexture> lastTexture);
+
+    // a 1x1 buffer's colour, kept after a synchronous buffer is released
+    std::optional<CHyprColor> solidColor;
 
     // fifo
     bool barrierSet            = false;
