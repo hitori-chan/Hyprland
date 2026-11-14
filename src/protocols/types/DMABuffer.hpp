@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Buffer.hpp"
+#include "../../helpers/cm/YCbCr.hpp"
 #include <array>
 #include <hyprutils/os/FileDescriptor.hpp>
 
@@ -25,6 +26,7 @@ class CDMABuffer : public IHLBuffer {
     // Attribute copies are borrowed views; only m_fds owns the planes.
     Aquamarine::SDMABUFAttrs                      m_attrs;
     std::array<Hyprutils::OS::CFileDescriptor, 4> m_fds;
+    NColorManagement::SYCbCr                      m_ycbcr; // what a YUV m_texture converts with
 
     struct {
         CHyprSignalListener resourceDestroy;
