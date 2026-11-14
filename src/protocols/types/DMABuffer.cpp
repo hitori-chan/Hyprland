@@ -23,13 +23,14 @@ CDMABuffer::CDMABuffer(uint32_t id, wl_client* client, const Aquamarine::SDMABUF
     if UNLIKELY (!m_resource->good())
         return;
 
-    m_opaque  = isDrmFormatOpaque(m_attrs.format);
-    m_texture = g_pHyprRenderer->createTexture(m_attrs, m_opaque); // texture takes ownership of the eglImage
+    m_opaque  = isDrmFormatOpaque(m_attrs.format) || NFormatUtils::isFormatYUV(m_attrs.format);
+    m_ycbcr   = NColorManagement::defaultYCbCr(m_attrs.size);
+    m_texture = g_pHyprRenderer->createTexture(m_attrs, m_opaque, m_ycbcr); // texture takes ownership of the eglImage
 
     if UNLIKELY (!m_texture) {
         LOG(Log::ERR, "CDMABuffer: failed to import EGLImage, retrying as implicit");
         m_attrs.modifier = DRM_FORMAT_MOD_INVALID;
-        m_texture        = g_pHyprRenderer->createTexture(m_attrs, m_opaque);
+        m_texture        = g_pHyprRenderer->createTexture(m_attrs, m_opaque, m_ycbcr);
 
         if UNLIKELY (!m_texture) {
             LOG(Log::ERR, "CDMABuffer: failed to import EGLImage");

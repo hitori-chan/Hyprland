@@ -28,6 +28,7 @@ namespace Render {
         SH_FEAT_BLUR_MATTE        = (1 << 12), // condition: transformed-window blur matte
         SH_FEAT_ALT_TONEMAP       = (1 << 13), // condition: tonemapMode == 3
         SH_FEAT_BLUR_PROPORTIONAL = (1 << 14), // condition: decoration:blur:proportional
+        SH_FEAT_EXTERNAL          = (1 << 15), // samplerExternalOES (YUV) texture sampling; condition: TEXTURE_EXTERNAL
 
         // uniforms: targetPrimariesXYZ; condition: SH_FEAT_TONEMAP || SH_FEAT_SDR_MOD
     };
