@@ -25,6 +25,7 @@
 #include "../layout/target/Target.hpp"
 #include "../managers/eventLoop/EventLoopManager.hpp"
 #include "../protocols/core/Compositor.hpp"
+#include "../protocols/core/Subcompositor.hpp"
 #include "../protocols/core/DataDevice.hpp"
 #include "../render/Renderer.hpp"
 #include "../ipc/s2/S2.hpp"
@@ -1829,8 +1830,8 @@ uint32_t CMonitor::isSolitaryBlocked(bool full) {
             return reasons;
     }
 
-    // check if it did not open any subsurfaces or shit
-    if (!PCANDIDATE->getSolitaryResource())
+    // check if it did not open any subsurfaces or shit, but a video's
+    if (!PCANDIDATE->getScanoutResource())
         reasons |= SC_SURFACES;
 
     return reasons;
@@ -1989,21 +1990,26 @@ uint16_t CMonitor::isDSBlocked(bool full) {
             return reasons;
     }
 
-    const auto PSURFACE = PCANDIDATE->getSolitaryResource();
+    // the solitary surface, or a video's picture placed on the output
+    const auto PSOLITARY = PCANDIDATE->getSolitaryResource();
+    const auto PSURFACE  = PSOLITARY ? PSOLITARY : PCANDIDATE->getVideoResource();
     if (!PSURFACE || !PSURFACE->m_current.texture || !PSURFACE->m_current.buffer) {
         reasons |= DS_BLOCK_SURFACE;
         return reasons;
     }
 
-    if (PSURFACE->m_current.bufferSize != m_pixelSize || PSURFACE->m_current.transform != m_transform) {
+    const bool VIDEO     = !PSOLITARY;
+    const auto PLACEMENT = VIDEO ? videoPlacement(PCANDIDATE, PSURFACE) : std::optional{Aquamarine::COutputState::SBufferPlacement{}};
+
+    if (!PLACEMENT || (!VIDEO && (PSURFACE->m_current.bufferSize != m_pixelSize || PSURFACE->m_current.transform != m_transform))) {
         reasons |= DS_BLOCK_TRANSFORM;
         if (!full)
             return reasons;
     }
 
-    // we can't scanout shm buffers.
+    // we can't scanout shm buffers, nor place a buffer the mgpu blit copies
     const auto params = PSURFACE->m_current.buffer->dmabuf();
-    if (!params.success || !PSURFACE->m_current.texture->isDMA() /* dmabuf */) {
+    if (!params.success || !PSURFACE->m_current.texture->isDMA() /* dmabuf */ || (VIDEO && isMultiGPU())) {
         reasons |= DS_BLOCK_DMA;
         if (!full)
             return reasons;
@@ -2017,10 +2023,18 @@ uint16_t CMonitor::isDSBlocked(bool full) {
             return reasons;
     }
 
-    if (params.success && m_dsFailedOn.surface.lock() == PSURFACE && m_dsFailedOn.format == params.format && m_dsFailedOn.modifier == params.modifier) {
+    if (params.success && m_dsFailedOn.surface.lock() == PSURFACE && m_dsFailedOn.format == params.format && m_dsFailedOn.modifier == params.modifier &&
+        (!PLACEMENT || m_dsFailedOn.placement == *PLACEMENT)) {
         reasons |= DS_BLOCK_FAILED;
         if (!full)
             return reasons;
+    }
+
+    if (VIDEO) {
+        if (!PLACEMENT || videoBlockedByCM(PSURFACE, *PLACEMENT))
+            reasons |= DS_BLOCK_CM;
+
+        return reasons;
     }
 
     const bool surfaceIsHDR   = PSURFACE->m_colorManagement.valid() && PSURFACE->m_colorManagement->isHDR();
@@ -2038,6 +2052,93 @@ uint16_t CMonitor::isDSBlocked(bool full) {
     return reasons;
 }
 
+std::optional<Aquamarine::COutputState::SBufferPlacement> CMonitor::videoPlacement(PHLWINDOW window, SP<CWLSurfaceResource> video) {
+    // planes neither rotate nor flip here
+    if (m_transform != WL_OUTPUT_TRANSFORM_NORMAL || video->m_current.transform != WL_OUTPUT_TRANSFORM_NORMAL)
+        return std::nullopt;
+
+    // the black main surface is the whole output, what the plane leaves uncovered
+    const auto MAINBOX = window->wlSurface()->getSurfaceBoxGlobal();
+    if (!MAINBOX || *MAINBOX != CBox{m_position, m_size})
+        return std::nullopt;
+
+    std::optional<Vector2D> offset;
+    for (const auto& subsurface : window->wlSurface()->resource()->m_subsurfaces) {
+        if (subsurface && subsurface->m_surface == video)
+            offset = subsurface->posRelativeToParent();
+    }
+
+    if (!offset)
+        return std::nullopt;
+
+    const auto& STATE = video->m_current;
+
+    // in output pixels, on the output: a plane clipped by the output may show garbage
+    const auto DST = CBox{*offset, STATE.size}.scale(m_scale).round();
+    if (DST.empty() || DST.x < 0 || DST.y < 0 || DST.x + DST.w > m_pixelSize.x || DST.y + DST.h > m_pixelSize.y)
+        return std::nullopt;
+
+    // in buffer pixels: the viewport's source at the buffer scale, else the whole buffer
+    const auto BUFFERBOX = CBox{{}, STATE.bufferSize};
+    const auto SRC       = STATE.viewport.hasSource ? STATE.viewport.source.copy().scale(STATE.scale).intersection(BUFFERBOX) : BUFFERBOX;
+    if (SRC.empty())
+        return std::nullopt;
+
+    Aquamarine::COutputState::SBufferPlacement placement = {.source = SRC, .destination = DST};
+
+    // a YCbCr buffer converts as the renderer imports it, so a composited frame looks the same
+    const auto ATTRS = STATE.buffer ? STATE.buffer->dmabuf() : Aquamarine::SDMABUFAttrs{};
+    if (ATTRS.success && NFormatUtils::isFormatYUV(ATTRS.format)) {
+        const auto YCBCR = STATE.ycbcr();
+        switch (YCBCR.encoding) {
+            case NColorManagement::CM_YCBCR_BT601: placement.ycbcrEncoding = Aquamarine::AQ_OUTPUT_YCBCR_ENCODING_BT601; break;
+            case NColorManagement::CM_YCBCR_BT709: placement.ycbcrEncoding = Aquamarine::AQ_OUTPUT_YCBCR_ENCODING_BT709; break;
+            case NColorManagement::CM_YCBCR_BT2020: placement.ycbcrEncoding = Aquamarine::AQ_OUTPUT_YCBCR_ENCODING_BT2020; break;
+        }
+        placement.ycbcrRange = YCBCR.fullRange ? Aquamarine::AQ_OUTPUT_COLOR_RANGE_FULL : Aquamarine::AQ_OUTPUT_COLOR_RANGE_LIMITED;
+    }
+
+    return placement;
+}
+
+// the plane converts YCbCr to RGB and nothing else, and the kernel sends a YCbCr
+// layer as SDR: the video shows as composited only if it needs no more
+bool CMonitor::videoBlockedByCM(SP<CWLSurfaceResource> video, const Aquamarine::COutputState::SBufferPlacement& placement) {
+    static auto PNONSHADER = CConfigValue<Config::INTEGER>("render:non_shader_cm");
+
+    const bool  HAS_DESCRIPTION = video->m_colorManagement.valid() && video->m_colorManagement->hasImageDescription();
+    if (HAS_DESCRIPTION && video->m_colorManagement->isHDR())
+        return true;
+
+    if (*PNONSHADER == CM_NS_IGNORE)
+        return false;
+
+    if (inHDR() || (needsCM() && !canNoShaderCM(true)))
+        return true;
+
+    // the fullscreen rule above, and any non-shader CTM, are decided for the
+    // main surface's description: the video must share its primaries
+    const auto FS_DESCRIPTION = getFSImageDescription();
+    if (!FS_DESCRIPTION)
+        return true;
+
+    const auto& VIDEO_DESCRIPTION = HAS_DESCRIPTION ? video->m_colorManagement->imageDescription() : getDefaultImageDescription()->value();
+    if (VIDEO_DESCRIPTION.getPrimaries() != FS_DESCRIPTION.value()->value().getPrimaries())
+        return true;
+
+    // SDR, decoded alike within the precision of a scan-out
+    switch (VIDEO_DESCRIPTION.transferFunction) {
+        case CM_TRANSFER_FUNCTION_SRGB:
+        case CM_TRANSFER_FUNCTION_GAMMA22:
+        case CM_TRANSFER_FUNCTION_BT1886: break;
+        default: return true;
+    }
+
+    // the DCP takes a YCbCr layer's primaries from its encoding
+    const bool BT2020 = VIDEO_DESCRIPTION.getPrimaries() == NColorManagement::getPrimaries(CM_PRIMARIES_BT2020);
+    return placement.ycbcrEncoding != Aquamarine::AQ_OUTPUT_YCBCR_ENCODING_DEFAULT && (placement.ycbcrEncoding == Aquamarine::AQ_OUTPUT_YCBCR_ENCODING_BT2020) != BT2020;
+}
+
 bool CMonitor::attemptDirectScanout() {
     static const auto PSAME     = CConfigValue<Config::INTEGER>("debug:ds_handle_same_buffer");
     static const auto PSAMEFIFO = CConfigValue<Config::INTEGER>("debug:ds_handle_same_buffer_fifo");
@@ -2047,12 +2148,16 @@ bool CMonitor::attemptDirectScanout() {
         return false;
 
     const auto PCANDIDATE = m_solitaryClient.lock();
-    const auto PSURFACE   = PCANDIDATE->getSolitaryResource();
+    const auto PSOLITARY  = PCANDIDATE->getSolitaryResource();
+    const auto PSURFACE   = PSOLITARY ? PSOLITARY : PCANDIDATE->getVideoResource();
+    const auto PLACEMENT  = PSOLITARY ? Aquamarine::COutputState::SBufferPlacement{} : videoPlacement(PCANDIDATE, PSURFACE).value_or(Aquamarine::COutputState::SBufferPlacement{});
     auto       PBUFFER    = PSURFACE->m_current.buffer.m_buffer;
 
     // #TODO this entire bit needs figuring out, vrr goes down the drain without it
-    if (PBUFFER == m_output->state->state().buffer && *PSAME) {
+    if (PBUFFER == m_output->state->state().buffer && PLACEMENT == m_output->state->state().bufferPlacement && *PSAME) {
         PSURFACE->presentFeedback(Time::steadyNow(), m_self.lock());
+        if (!PSOLITARY) // a video client may wait for frames on its main surface
+            PCANDIDATE->wlSurface()->resource()->frame(Time::steadyNow());
         PROTO::presentation->tagQueued(m_self.lock(), 0, m_tearingState.activelyTearing, m_vrrActive);
 
         if (m_scanoutNeedsCursorUpdate) {
@@ -2091,37 +2196,43 @@ bool CMonitor::attemptDirectScanout() {
 
     const auto  previousFormat           = m_drmFormat;
     const auto  previousBuffer           = m_output->state->state().buffer;
+    const auto  previousPlacement        = m_output->state->state().bufferPlacement;
     const auto  previousPresentationMode = m_output->state->state().presentationMode;
     bool        scanoutCommitted         = false;
-    CScopeGuard rollbackState            = {[this, previousFormat, previousBuffer, previousPresentationMode, &scanoutCommitted]() {
+    CScopeGuard rollbackState            = {[this, previousFormat, previousBuffer, previousPlacement, previousPresentationMode, &scanoutCommitted]() {
         if (scanoutCommitted)
             return;
 
         m_drmFormat = previousFormat;
         m_output->state->setFormat(previousFormat);
         m_output->state->setBuffer(previousBuffer);
+        m_output->state->setBufferPlacement(previousPlacement);
         m_output->state->setPresentationMode(previousPresentationMode);
         m_output->state->resetExplicitFences();
     }};
 
-    const bool  NEEDS_TEST = !m_lastScanout || m_drmFormat != params.format; // do not retest while it's active
+    // do not retest while it's active, unless a video moved or scaled
+    const bool NEEDS_TEST = !m_lastScanout || m_drmFormat != params.format || PLACEMENT != previousPlacement;
     if (m_drmFormat != params.format) {
         m_output->state->setFormat(params.format);
         m_drmFormat = params.format;
     }
 
     m_output->state->setBuffer(PBUFFER);
+    m_output->state->setBufferPlacement(PLACEMENT);
     LOG(Log::TRACE, "attemptDirectScanout: setting presentation mode");
     m_output->state->setPresentationMode(m_tearingState.activelyTearing ? Aquamarine::eOutputPresentationMode::AQ_OUTPUT_PRESENTATION_IMMEDIATE :
                                                                           Aquamarine::eOutputPresentationMode::AQ_OUTPUT_PRESENTATION_VSYNC);
 
     if (NEEDS_TEST && !m_state.test()) {
         LOG(Log::TRACE, "attemptDirectScanout: failed basic test");
-        m_dsFailedOn = {.surface = PSURFACE, .format = params.format, .modifier = params.modifier};
+        m_dsFailedOn = {.surface = PSURFACE, .format = params.format, .modifier = params.modifier, .placement = PLACEMENT};
         return false;
     }
 
     PSURFACE->presentFeedback(Time::steadyNow(), m_self.lock());
+    if (!PSOLITARY) // a video client may wait for frames on its main surface
+        PCANDIDATE->wlSurface()->resource()->frame(Time::steadyNow());
 
     auto    damageTransaction = m_damage.beginTransaction();
     CRegion scanoutDamage     = damageTransaction.getBufferDamage(1);
@@ -2129,6 +2240,9 @@ bool CMonitor::attemptDirectScanout() {
     scanoutDamage.transform(Math::wlTransformToHyprutils(Math::invertTransform(m_transform)), m_transformedSize.x, m_transformedSize.y);
     // expand to not miss pixels from rounding, being a bit over is safe, going below is stale pixels.
     scanoutDamage.expand(1).intersect(CBox{{}, m_pixelSize});
+    // a placed buffer is not in output pixels: all of it
+    if (PLACEMENT != Aquamarine::COutputState::SBufferPlacement{})
+        scanoutDamage = CBox{{}, PSURFACE->m_current.bufferSize};
     m_output->state->addDamage(scanoutDamage);
 
     // multigpu needs a fence to trigger fence syncing blits and also committing with the recreated dgpu fence
