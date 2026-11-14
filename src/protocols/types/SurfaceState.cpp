@@ -69,6 +69,10 @@ void SSurfaceState::updateSynchronousTexture(SP<Render::ITexture> lastTexture) {
     buffer->endDataPtr();
 }
 
+NColorManagement::SYCbCr SSurfaceState::ycbcr() const {
+    return colorRepresentation.value_or(NColorManagement::defaultYCbCr(bufferSize));
+}
+
 void SSurfaceState::reset() {
     updated.all = false;
 
@@ -132,6 +136,9 @@ void SSurfaceState::mergeFrom(SSurfaceState& ref) {
         bufferSize = ref.bufferSize;
     }
 
+    if (ref.updated.bits.colorRepresentation)
+        colorRepresentation = ref.colorRepresentation;
+
     if (ref.updated.bits.damage) {
         damage.add(ref.damage);
         bufferDamage.add(ref.bufferDamage);
@@ -187,6 +194,9 @@ void SSurfaceState::updateFrom(SSurfaceState& ref) {
         size       = ref.size;
         bufferSize = ref.bufferSize;
     }
+
+    if (ref.updated.bits.colorRepresentation)
+        colorRepresentation = ref.colorRepresentation;
 
     if (ref.updated.bits.damage) {
         if (consumeBufferDamage()) {
