@@ -84,6 +84,22 @@ bool CDMABuffer::good() {
     return m_success;
 }
 
+bool CDMABuffer::setYCbCr(const NColorManagement::SYCbCr& ycbcr) {
+    if (!m_success || ycbcr == m_ycbcr || !NFormatUtils::isFormatYUV(m_attrs.format))
+        return false;
+
+    // EGL takes the conversion at import
+    auto texture = g_pHyprRenderer->createTexture(m_attrs, m_opaque, ycbcr);
+    if UNLIKELY (!texture || !texture->ok()) {
+        LOG(Log::ERR, "CDMABuffer: failed to import EGLImage with another YCbCr conversion");
+        return false;
+    }
+
+    m_ycbcr   = ycbcr;
+    m_texture = texture;
+    return true;
+}
+
 void CDMABuffer::closeFDs() {
     for (auto& fd : m_fds)
         fd.reset();

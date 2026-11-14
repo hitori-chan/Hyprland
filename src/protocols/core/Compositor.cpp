@@ -675,6 +675,12 @@ void CWLSurfaceResource::commitState(SSurfaceState& state) {
     if (m_fifo.expired())
         m_current.waitingOnPresentation = false;
 
+    // a YCbCr dmabuf converts as committed with it: imported again when that changes
+    if (m_current.buffer && (state.updated.bits.buffer || state.updated.bits.colorRepresentation)) {
+        if (auto* dmabuf = dc<CDMABuffer*>(m_current.buffer.m_buffer.get()); dmabuf && dmabuf->setYCbCr(m_current.ycbcr()))
+            m_current.texture = dmabuf->m_texture;
+    }
+
     if (m_current.buffer) {
         if (m_current.buffer->isSynchronous())
             m_current.updateSynchronousTexture(lastTexture);

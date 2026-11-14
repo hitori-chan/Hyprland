@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../../helpers/math/Math.hpp"
+#include "../../helpers/cm/YCbCr.hpp"
 #include "../../helpers/time/Time.hpp"
 #include "../../managers/eventLoop/EventLoopTimer.hpp"
 #include "../WaylandProtocol.hpp"
@@ -68,6 +69,7 @@ struct SSurfaceState {
             bool cursor : 1;
             bool xwayland : 1;
             bool xdgPopup : 1;
+            bool colorRepresentation : 1;
         } bits;
     } updated;
 
@@ -112,6 +114,10 @@ struct SSurfaceState {
     // texture of surface content, used for rendering
     SP<Render::ITexture> texture;
     void                 updateSynchronousTexture(SP<Render::ITexture> lastTexture);
+
+    // color representation protocol surface state, unset for RGB and without one
+    std::optional<NColorManagement::SYCbCr> colorRepresentation;
+    NColorManagement::SYCbCr                ycbcr() const; // what a YCbCr buffer converts with: the representation, else the default for its size
 
     // fifo
     bool barrierSet            = false;

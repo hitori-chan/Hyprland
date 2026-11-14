@@ -20,6 +20,7 @@ class CDMABuffer : public IHLBuffer {
     bool                                           good();
     void                                           closeFDs();
     std::vector<Hyprutils::OS::CFileDescriptor>    exportSyncFiles();
+    bool                                           setYCbCr(const NColorManagement::SYCbCr& ycbcr); // true if m_texture changed
     bool                                           m_success = false;
 
   private:
