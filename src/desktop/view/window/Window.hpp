@@ -264,6 +264,8 @@ namespace Desktop::View {
         bool                       isNotResponding();
         bool                       priorityFocus();
         SP<CWLSurfaceResource>     getSolitaryResource() const;
+        SP<CWLSurfaceResource>     getVideoResource() const;
+        SP<CWLSurfaceResource>     getScanoutResource() const; // the solitary resource, else the video one
         std::optional<Vector2D>    calculateExpression(const Math::SExpressionVec2& expr);
         std::optional<Vector2D>    minSize();
         std::optional<Vector2D>    maxSize();

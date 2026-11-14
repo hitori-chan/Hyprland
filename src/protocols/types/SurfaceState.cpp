@@ -5,6 +5,7 @@
 #include "managers/eventLoop/EventLoopManager.hpp"
 #include "render/Renderer.hpp"
 #include "render/Texture.hpp"
+#include <cstring>
 
 Vector2D SSurfaceState::sourceSize() {
     if UNLIKELY (!texture)
@@ -55,6 +56,20 @@ CRegion SSurfaceState::effectiveInputRegion() const {
     return input.copy().intersect(CBox{{}, size});
 }
 
+// the colour of a 1x1 pixel in a format whose top byte is alpha or padding
+static std::optional<CHyprColor> solidPixelColor(DRMFormat format, const uint8_t* pixel) {
+    uint32_t value = 0;
+    std::memcpy(&value, pixel, sizeof(value));
+
+    switch (format) {
+        case DRM_FORMAT_XRGB8888: value |= 0xFF000000; [[fallthrough]];
+        case DRM_FORMAT_ARGB8888: return CHyprColor{value};
+        case DRM_FORMAT_XBGR8888: value |= 0xFF000000; [[fallthrough]];
+        case DRM_FORMAT_ABGR8888: return CHyprColor{(value & 0xFF00FF00) | ((value & 0xFF) << 16) | ((value >> 16) & 0xFF)};
+        default: return std::nullopt;
+    }
+}
+
 void SSurfaceState::updateSynchronousTexture(SP<Render::ITexture> lastTexture) {
     auto [dataPtr, fmt, size] = buffer->beginDataPtr(0);
     if (dataPtr) {
@@ -65,6 +80,8 @@ void SSurfaceState::updateSynchronousTexture(SP<Render::ITexture> lastTexture) {
             texture->update(drmFmt, dataPtr, stride, accumulateBufferDamage());
         } else
             texture = g_pHyprRenderer->createTexture(drmFmt, dataPtr, stride, bufferSize);
+
+        solidColor = bufferSize == Vector2D{1, 1} && size >= 4 ? solidPixelColor(drmFmt, dataPtr) : std::nullopt;
     }
     buffer->endDataPtr();
 }
@@ -134,6 +151,7 @@ void SSurfaceState::mergeFrom(SSurfaceState& ref) {
         texture    = ref.texture;
         size       = ref.size;
         bufferSize = ref.bufferSize;
+        solidColor = ref.solidColor;
     }
 
     if (ref.updated.bits.colorRepresentation)
@@ -193,6 +211,7 @@ void SSurfaceState::updateFrom(SSurfaceState& ref) {
         texture    = ref.texture;
         size       = ref.size;
         bufferSize = ref.bufferSize;
+        solidColor = ref.solidColor;
     }
 
     if (ref.updated.bits.colorRepresentation)

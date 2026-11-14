@@ -242,7 +242,12 @@ bool CWindowPresentation::opaque(const Render::SWindowRenderPresentation& presen
         return false;
 
     auto solitaryResource = m_window.getSolitaryResource();
-    if (!solitaryResource || !solitaryResource->m_current.texture)
+
+    // a video's main surface is opaque black under its picture
+    if (!solitaryResource)
+        return m_window.getVideoResource() != nullptr;
+
+    if (!solitaryResource->m_current.texture)
         return false;
 
     if (m_window.backend().isX11())
