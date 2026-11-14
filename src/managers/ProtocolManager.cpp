@@ -61,6 +61,7 @@
 #include "../protocols/core/Output.hpp"
 #include "../protocols/core/Shm.hpp"
 #include "../protocols/ColorManagement.hpp"
+#include "../protocols/ColorRepresentation.hpp"
 #include "../protocols/ContentType.hpp"
 #include "../protocols/XDGTag.hpp"
 #include "../protocols/XDGBell.hpp"
@@ -223,6 +224,7 @@ CProtocolManager::CProtocolManager() {
     PROTO::xdgForeignExporter  = makeUnique<CXDGForeignExporterProtocolV2>(&zxdg_exporter_v2_interface, 1, "XDGForeignExporter");
     PROTO::xdgForeignImporter  = makeUnique<CXDGForeignImporterProtocolV2>(&zxdg_importer_v2_interface, 1, "XDGForeignImporter");
     PROTO::backgroundEffect    = makeUnique<CBackgroundEffectProtocol>(&ext_background_effect_manager_v1_interface, 1, "BackgroundEffect");
+    PROTO::colorRepresentation = makeUnique<CColorRepresentationProtocol>(&wp_color_representation_manager_v1_interface, 1, "ColorRepresentation");
 
     if (*PENABLECT)
         PROTO::commitTiming = makeUnique<CCommitTimingProtocol>(&wp_commit_timing_manager_v1_interface, 1, "CommitTiming");
@@ -339,6 +341,7 @@ CProtocolManager::~CProtocolManager() {
     PROTO::commitTiming.reset();
     PROTO::imageCaptureSource.reset();
     PROTO::backgroundEffect.reset();
+    PROTO::colorRepresentation.reset();
 
     for (auto& [_, lease] : PROTO::lease) {
         lease.reset();
@@ -396,6 +399,7 @@ bool CProtocolManager::isGlobalPrivileged(const wl_global* global) {
         PROTO::xdgForeignExporter->getGlobal(),
         PROTO::xdgForeignImporter->getGlobal(),
         PROTO::backgroundEffect->getGlobal(),
+        PROTO::colorRepresentation->getGlobal(),
         PROTO::sync     ? PROTO::sync->getGlobal()      : nullptr,
         PROTO::mesaDRM  ? PROTO::mesaDRM->getGlobal()   : nullptr,
         PROTO::linuxDma ? PROTO::linuxDma->getGlobal()  : nullptr,
