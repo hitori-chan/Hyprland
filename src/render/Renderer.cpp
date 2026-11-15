@@ -2175,7 +2175,9 @@ static bool isSDR2HDR(CRenderContext& ctx, const NColorManagement::SImageDescrip
         (targetImageDescription.transferFunction == NColorManagement::CM_TRANSFER_FUNCTION_ST2084_PQ ||
          targetImageDescription.transferFunction == NColorManagement::CM_TRANSFER_FUNCTION_HLG ||
          (targetImageDescription.transferFunction == NColorManagement::CM_TRANSFER_FUNCTION_EXT_LINEAR &&
-          ctx.m_data.pMonitor->m_imageDescription->value().transferFunction == NColorManagement::CM_TRANSFER_FUNCTION_ST2084_PQ));
+          ctx.m_data.pMonitor->m_imageDescription->value().transferFunction == NColorManagement::CM_TRANSFER_FUNCTION_ST2084_PQ) ||
+         // the HDR work buffer in extended sRGB (render:hdr_blend_space = srgb), the only description with its own range
+         (targetImageDescription.transferFunction == NColorManagement::CM_TRANSFER_FUNCTION_EXT_SRGB && targetImageDescription.tfRange.has_value()));
 }
 
 static bool isHDR2SDR(const NColorManagement::SImageDescription& imageDescription, const NColorManagement::SImageDescription& targetImageDescription) {

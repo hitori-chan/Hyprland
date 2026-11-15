@@ -432,7 +432,8 @@ namespace Monitor {
 
         // Resources
         UP<Monitor::CMonitorResources> m_resources;
-        // cached should contain one of predefined descriptions for FP16: sRGB primaries with either linear TF by default and in HDR mode or monitor's TF in SDR with render:fp16_sdr_tf = 0
+        // cached should contain one of predefined descriptions for FP16: sRGB primaries with either linear TF by default and in HDR mode with render:hdr_blend_space = linear,
+        // extended sRGB with SDR content's range in HDR mode with render:hdr_blend_space = srgb, or monitor's TF in SDR with render:fp16_sdr_tf = 0
         // avoids lookup for an id when ::from is used
         NColorManagement::PImageDescription m_cachedInternalDescription = NColorManagement::CImageDescription::from(NColorManagement::SImageDescription{});
 

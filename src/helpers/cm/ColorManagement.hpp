@@ -264,14 +264,25 @@ namespace NColorManagement {
         uint32_t maxCLL  = 0;
         uint32_t maxFALL = 0;
 
-        bool     operator==(const SImageDescription& d2) const {
+        // Internal buffers only, never a client's: the luminances in cd/m² the transfer function's 0.0 and 1.0 stand for, whatever SDR setting the caller passes.
+        // The HDR work buffer in extended sRGB keeps SDR content's own range here, so SDR content is stored unchanged and HDR content goes above 1.0.
+        struct SPCTFRange {
+            float min = 0;
+            float max = 0;
+            bool  operator==(const SPCTFRange& r2) const {
+                return min == r2.min && max == r2.max;
+            }
+        };
+        std::optional<SPCTFRange> tfRange;
+
+        bool                      operator==(const SImageDescription& d2) const {
             if (icc.present || d2.icc.present)
                 return false;
 
             return isWindows == d2.isWindows && transferFunction == d2.transferFunction && transferFunctionPower == d2.transferFunctionPower &&
                 (primariesNameSet == d2.primariesNameSet && (primariesNameSet ? primariesNamed == d2.primariesNamed : primaries == d2.primaries)) &&
                 masteringPrimaries == d2.masteringPrimaries && luminances == d2.luminances && masteringLuminances == d2.masteringLuminances && maxCLL == d2.maxCLL &&
-                maxFALL == d2.maxFALL;
+                maxFALL == d2.maxFALL && tfRange == d2.tfRange;
         }
 
         const SPCPRimaries& getPrimaries() const {
@@ -281,6 +292,9 @@ namespace NColorManagement {
         }
 
         float getTFMinLuminance(float sdrMinLuminance = -1.0f) const {
+            if (tfRange)
+                return tfRange->min;
+
             switch (transferFunction) {
                 case CM_TRANSFER_FUNCTION_EXT_LINEAR: return isWindows ? 0.0f : luminances.min;
                 case CM_TRANSFER_FUNCTION_ST2084_PQ:
@@ -300,6 +314,9 @@ namespace NColorManagement {
         };
 
         float getTFMaxLuminance(int sdrMaxLuminance = -1) const {
+            if (tfRange)
+                return tfRange->max;
+
             switch (transferFunction) {
                 case CM_TRANSFER_FUNCTION_EXT_LINEAR:
                     // Windows scRGB uses a fixed 80-nit scale, independently of the luminance metadata.
@@ -473,8 +490,9 @@ template <typename CharT>
 struct std::formatter<NColorManagement::SImageDescription, CharT> : std::formatter<CharT> {
     template <typename FormatContext>
     auto format(const NColorManagement::SImageDescription& imageDescription, FormatContext& ctx) const {
-        return std::format_to(ctx.out(), "[{}{}, primaries={}, luminances={}]", NColorManagement::tfToString(imageDescription.transferFunction),
+        return std::format_to(ctx.out(), "[{}{}, primaries={}, luminances={}{}]", NColorManagement::tfToString(imageDescription.transferFunction),
                               imageDescription.transferFunctionPower != 1.0f ? std::format("^{}", imageDescription.transferFunctionPower) : "", imageDescription.getPrimaries(),
-                              imageDescription.luminances);
+                              imageDescription.luminances,
+                              imageDescription.tfRange ? std::format(", tfRange=[{}-{}]", imageDescription.tfRange->min, imageDescription.tfRange->max) : "");
     }
 };
