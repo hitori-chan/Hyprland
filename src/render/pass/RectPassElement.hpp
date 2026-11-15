@@ -12,6 +12,7 @@ class CRectPassElement : public IPassElement {
         int                               round         = 0;
         float                             roundingPower = 2.0f;
         bool                              blur = false, xray = false;
+        bool                              punch = false; // replaces what is under it, alpha included: an underlay's hole
         float                             blurA = 1.F;
         std::optional<CBox>               blurPatternBox;
         PHLWINDOWREF                      blurOwner;

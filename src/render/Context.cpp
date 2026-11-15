@@ -30,6 +30,10 @@ const SP<CSceneResources>& CRenderContext::sceneResources() const {
     return m_sceneResources;
 }
 
+bool CRenderContext::underlay() const {
+    return m_underlay.active;
+}
+
 bool CRenderContext::readOnlyEffects() const {
     return m_sceneResources && m_sceneResources->isolated();
 }
@@ -85,6 +89,7 @@ void CRenderContext::reset() {
     m_renderingSnapshot    = false;
     m_renderingCapture     = false;
     m_swapchainAcquired    = false;
+    m_underlay             = {};
     m_gl                   = {};
     m_active               = false;
 }
