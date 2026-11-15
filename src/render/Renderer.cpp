@@ -2817,15 +2817,20 @@ void IHyprRenderer::handleFullscreenSettings(PHLMONITOR pMonitor) {
     const bool CONTENT_UNDERLAY = pMonitor->m_underlay.entered && !pMonitor->m_underlay.video;
     const auto CTM_WINDOW       = CONTENT_UNDERLAY ? pMonitor->m_underlay.window.lock() : FULLSCREEN_WINDOW;
     const bool RAW              = CONTENT_UNDERLAY || !pMonitor->m_lastScanout.expired();
+    // a YCbCr video scanned out on the primary is converted to the panel's gamut by the DCP from its tags, so a
+    // fullscreen CTM would convert it a second time: a window showing one keeps the shader CM and the monitor's own
+    // CTM, scanned out or composited, and its scan-out changes no colour
+    const bool FS_VIDEO = !CONTENT_UNDERLAY && CTM_WINDOW && CTM_WINDOW->getVideoResource();
 
-    if (CTM_WINDOW != pMonitor->m_previousCTMWindow || (!CTM_WINDOW && pMonitor->m_noShaderCTM) || pMonitor->m_ctmUpdated) {
+    if (CTM_WINDOW != pMonitor->m_previousCTMWindow || FS_VIDEO != pMonitor->m_previousFSVideo || (!CTM_WINDOW && pMonitor->m_noShaderCTM) || pMonitor->m_ctmUpdated) {
         pMonitor->m_previousCTMWindow = CTM_WINDOW;
+        pMonitor->m_previousFSVideo   = FS_VIDEO;
 
         // the display's CTM would also hit an underlay's video on the primary: its frame takes the shader's CM, as a windowed one
         const bool UNDERLAY = pMonitor->m_underlay.entered && pMonitor->m_underlay.video;
         const bool INTEROP  = (*PNSINTEROP == 1 || (*PNSINTEROP == 2 && CTM_WINDOW && CTM_WINDOW->getContentType() == CONTENT_TYPE_NONE));
-        bool       resetCTM = !CTM_WINDOW || UNDERLAY;
-        if (CTM_WINDOW && !UNDERLAY) {
+        bool       resetCTM = !CTM_WINDOW || UNDERLAY || FS_VIDEO;
+        if (CTM_WINDOW && !UNDERLAY && !FS_VIDEO) {
             if (*PNONSHADER == CM_NS_IGNORE)
                 resetCTM = true;
             else if (const auto FS_DESC = pMonitor->getFSImageDescription();
