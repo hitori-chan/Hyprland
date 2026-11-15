@@ -1065,7 +1065,8 @@ TEST_F(CWindowGeometryTest, OrdinaryFloatingAndFullscreenKeepLogicalRounding) {
     const CBox floating{m_monitor->m_position + Vector2D{10.24, 20.48}, {100.48, 80.64}};
     window->windowTarget()->setFloatingInitial(true);
     window->windowTarget()->setPositionGlobal(floating);
-    EXPECT_EQ(appliedGoal(window), floating.copy().round());
+    // the fork: a floating window on its monitor's pixel grid (a 4-unit step at 1.25), whole device pixels
+    expectBoxNear(physicalBox(appliedGoal(window)), {15, 25, 125, 100});
 
     window->windowTarget()->setFloatingInitial(false);
     const auto handler = workspace->space()->algorithm()->tiledAlgo()->getFSHandler();
