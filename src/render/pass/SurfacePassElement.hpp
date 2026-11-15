@@ -76,6 +76,8 @@ class CSurfacePassElement : public IPassElement {
     SRenderData m_data;
 
     CBox        getTexBox();
+    // nothing shows through it: its buffer has no alpha, or its opaque region covers it
+    bool contentOpaque() const;
 
   private:
     bool m_texBoxCached = false;
