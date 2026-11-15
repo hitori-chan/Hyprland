@@ -46,6 +46,7 @@ namespace Layout {
 
         void                  updatePos(uint8_t flags = TARGET_UPDATE_NONE);
         void                  updateWindowGeometry(const CBox& box, uint8_t flags);
+        CBox                  onPixelGrid(const CBox& box);
 
         PHLWINDOWREF          m_window;
         bool                  m_floating       = false;
