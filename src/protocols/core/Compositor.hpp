@@ -130,6 +130,7 @@ class CWLSurfaceResource {
     NColorManagement::PImageDescription    getPreferredImageDescription();
     void                                   sortSubsurfaces();
     bool                                   hasVisibleSubsurface();
+    bool                                   fullyOpaque();
     bool                                   isTearing();
 
     // returns a pair: found surface (null if not found) and surface local coords.
