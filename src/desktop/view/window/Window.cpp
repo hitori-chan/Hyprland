@@ -38,6 +38,7 @@
 #include "../../../config/ConfigValue.hpp"
 #include "../../../config/shared/actions/ConfigActions.hpp"
 #include "../../../config/ConfigManager.hpp"
+#include "../../../helpers/Format.hpp"
 #include "../../../config/shared/animation/AnimationTree.hpp"
 #include "../../../config/shared/workspace/WorkspaceRuleManager.hpp"
 #include "../../../state/MonitorState.hpp"
@@ -1191,6 +1192,80 @@ SP<CWLSurfaceResource> CWindow::getScanoutResource() const {
         return SOLITARY;
 
     return getVideoResource();
+}
+
+// a video among a client's layers (Firefox's WebRender over GTK's toplevel): the one YCbCr dmabuf
+// in the tree, over an opaque main surface nothing hangs out of. With render:underlay, a monitor
+// may put it on the primary plane under the rest of the frame
+SP<CWLSurfaceResource> CWindow::getUnderlayResource() const {
+    static auto PUNDERLAY = CConfigValue<Config::INTEGER>("render:underlay");
+
+    if (!*PUNDERLAY || !m_wlSurface || !m_wlSurface->resource() || m_backend->isX11() || popupTreeSize())
+        return nullptr;
+
+    const auto RES = m_wlSurface->resource();
+    if (!RES->fullyOpaque() || RES->extends() != CBox{{}, RES->m_current.size})
+        return nullptr;
+
+    SP<CWLSurfaceResource> video;
+    bool                   many = false;
+    RES->breadthfirst(
+        [&video, &many, &RES](SP<CWLSurfaceResource> s, const Vector2D& offset, void* data) {
+            if (s == RES || !s->m_current.texture || !s->m_current.buffer || !s->m_current.texture->isDMA())
+                return;
+
+            if (s->m_current.size.x <= 0 || s->m_current.size.y <= 0)
+                return;
+
+            const auto ATTRS = s->m_current.buffer->dmabuf();
+            if (!ATTRS.success || !NFormatUtils::isFormatYUV(ATTRS.format))
+                return;
+
+            many  = many || video;
+            video = s;
+        },
+        nullptr);
+
+    if (many || !video || !video->fullyOpaque())
+        return nullptr;
+
+    return video;
+}
+
+// a window's content among its layers (Firefox's WebRender over GTK's toplevel, a terminal's one surface): the largest
+// opaque RGB dmabuf in the tree, over half the main surface. With render:underlay 2, a monitor may put it on the primary
+// plane under the rest of the frame
+SP<CWLSurfaceResource> CWindow::getContentUnderlayResource() const {
+    static auto PUNDERLAY = CConfigValue<Config::INTEGER>("render:underlay");
+
+    if (*PUNDERLAY < 2 || !m_wlSurface || !m_wlSurface->resource() || m_backend->isX11() || popupTreeSize())
+        return nullptr;
+
+    const auto             RES = m_wlSurface->resource();
+    SP<CWLSurfaceResource> content;
+    double                 area = 0;
+    RES->breadthfirst(
+        [&content, &area](SP<CWLSurfaceResource> s, const Vector2D& offset, void* data) {
+            if (!s->m_current.texture || !s->m_current.buffer || !s->m_current.texture->isDMA())
+                return;
+
+            const double AREA = s->m_current.size.x * s->m_current.size.y;
+            if (AREA <= area)
+                return;
+
+            const auto ATTRS = s->m_current.buffer->dmabuf();
+            if (!ATTRS.success || NFormatUtils::isFormatYUV(ATTRS.format) || !s->fullyOpaque())
+                return;
+
+            content = s;
+            area    = AREA;
+        },
+        nullptr);
+
+    if (!content || area * 2 < RES->m_current.size.x * RES->m_current.size.y)
+        return nullptr;
+
+    return content;
 }
 
 std::optional<Vector2D> CWindow::calculateExpression(const Math::SExpressionVec2& expr) {

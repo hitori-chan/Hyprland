@@ -167,6 +167,10 @@ void CMonitor::onConnect(bool noRule) {
 
         PROTO::presentation->onPresented(m_self.lock(), ts, event.refresh, event.seq, flags, event.commitID, event.presented);
 
+        // a skipped underlay frame's frame events follow the last presentation by a refresh
+        if (event.presented)
+            m_underlay.lastFrameEvents = Time::fromTimespec(&ts);
+
         m_commitCoordinator->onPresented(event.commitID, event.presented);
 
         if (!event.presented) {
@@ -680,6 +684,9 @@ bool CMonitor::applyMonitorRule(Config::CMonitorRule&& pMonitorRule) {
     static auto PDISABLESCALECHECKS = CConfigValue<Config::INTEGER>("debug:disable_scale_checks");
 
     LOG(Log::DEBUG, "Applying monitor rule for {}", m_name);
+
+    // a modeset would state the overlay again at the old mode: back to the primary alone first
+    leaveUnderlay();
 
     if (m_forceSize.has_value())
         m_activeMonitorRule.m_resolution = m_forceSize.value();
@@ -1832,8 +1839,8 @@ uint32_t CMonitor::isSolitaryBlocked(bool full) {
             return reasons;
     }
 
-    // check if it did not open any subsurfaces or shit, but a video's
-    if (!PCANDIDATE->getScanoutResource())
+    // check if it did not open any subsurfaces or shit, but a video's, or an underlay's layers
+    if (!PCANDIDATE->getScanoutResource() && !PCANDIDATE->getUnderlayResource())
         reasons |= SC_SURFACES;
 
     return reasons;
@@ -1842,10 +1849,11 @@ uint32_t CMonitor::isSolitaryBlocked(bool full) {
 void CMonitor::recheckSolitary() {
     m_solitaryClient.reset(); // reset it, if we find one it will be set.
 
-    // a failed direct-scanout test is tried again once solitary rendering ends
+    // a failed direct-scanout or underlay test is tried again once solitary rendering ends
     const auto PWORKSPACE = m_activeWorkspace;
     if (!PWORKSPACE || isSolitaryBlocked()) {
-        m_dsFailedOn = {};
+        m_dsFailedOn       = {};
+        m_underlayFailedOn = {};
         return;
     }
 
@@ -2055,10 +2063,6 @@ uint16_t CMonitor::isDSBlocked(bool full) {
 }
 
 std::optional<Aquamarine::COutputState::SBufferPlacement> CMonitor::videoPlacement(PHLWINDOW window, SP<CWLSurfaceResource> video) {
-    // planes neither rotate nor flip here
-    if (m_transform != WL_OUTPUT_TRANSFORM_NORMAL || video->m_current.transform != WL_OUTPUT_TRANSFORM_NORMAL)
-        return std::nullopt;
-
     // the black main surface is the whole output, what the plane leaves uncovered
     const auto MAINBOX = window->wlSurface()->getSurfaceBoxGlobal();
     if (!MAINBOX || *MAINBOX != CBox{m_position, m_size})
@@ -2073,10 +2077,18 @@ std::optional<Aquamarine::COutputState::SBufferPlacement> CMonitor::videoPlaceme
     if (!offset)
         return std::nullopt;
 
+    return placementAt(video, CBox{m_position + *offset, video->m_current.size});
+}
+
+std::optional<Aquamarine::COutputState::SBufferPlacement> CMonitor::placementAt(SP<CWLSurfaceResource> video, const CBox& box) {
+    // planes neither rotate nor flip here
+    if (m_transform != WL_OUTPUT_TRANSFORM_NORMAL || video->m_current.transform != WL_OUTPUT_TRANSFORM_NORMAL)
+        return std::nullopt;
+
     const auto& STATE = video->m_current;
 
     // in output pixels, on the output: a plane clipped by the output may show garbage
-    const auto DST = CBox{*offset, STATE.size}.scale(m_scale).round();
+    const auto DST = box.copy().translate(-m_position).scale(m_scale).round();
     if (DST.empty() || DST.x < 0 || DST.y < 0 || DST.x + DST.w > m_pixelSize.x || DST.y + DST.h > m_pixelSize.y)
         return std::nullopt;
 
@@ -2142,6 +2154,534 @@ bool CMonitor::videoBlockedByCM(SP<CWLSurfaceResource> video, const Aquamarine::
     return placement.ycbcrEncoding != Aquamarine::AQ_OUTPUT_YCBCR_ENCODING_DEFAULT && (placement.ycbcrEncoding == Aquamarine::AQ_OUTPUT_YCBCR_ENCODING_BT2020) != BT2020;
 }
 
+uint16_t CMonitor::isUnderlayBlocked(bool full) {
+    static auto PSHADER   = CConfigValue<std::string>("decoration:screen_shader");
+    uint16_t    reasons   = 0;
+    static auto PUNDERLAY = CConfigValue<Config::INTEGER>("render:underlay");
+
+    if (!*PUNDERLAY) {
+        reasons |= UL_BLOCK_USER;
+        if (!full)
+            return reasons;
+    }
+
+    // what reads the composite back would find the hole
+    if (!m_mirrors.empty() || isMirror()) {
+        reasons |= UL_BLOCK_MIRROR;
+        if (!full)
+            return reasons;
+    }
+
+    if (Screenshare::mgr()->isOutputDSBlocked(m_self.lock()) || needsACopyFB()) {
+        reasons |= UL_BLOCK_RECORD;
+        if (!full)
+            return reasons;
+    }
+
+    // the cursor stays on its own plane, and the overlay at 1:1
+    if (Pointer::mgr()->softwareLockedFor(m_self.lock()) || shouldUseSoftwareCursors() || m_cursorZoom->value() != 1.F || m_zoomAnimProgress->value() != 1.F) {
+        reasons |= UL_BLOCK_SW;
+        if (!full)
+            return reasons;
+    }
+
+    // a screen shader would not reach the video
+    // a shader set, as applyScreenShader() reads the option: unset is STRVAL_EMPTY, not ""
+    if (!(*PSHADER).empty() && *PSHADER != STRVAL_EMPTY) {
+        reasons |= UL_BLOCK_SHADER;
+        if (!full)
+            return reasons;
+    }
+
+    if (m_tearingState.activelyTearing) {
+        reasons |= UL_BLOCK_TEARING;
+        if (!full)
+            return reasons;
+    }
+
+    const auto CANDIDATE = underlayCandidate();
+    if (!CANDIDATE) {
+        reasons |= UL_BLOCK_CANDIDATE;
+        return reasons;
+    }
+
+    const auto PCANDIDATE = CANDIDATE->window;
+    const auto PVIDEO     = CANDIDATE->surface;
+    if (!PVIDEO) {
+        reasons |= UL_BLOCK_SURFACE;
+        return reasons;
+    }
+
+    // the composite goes on an overlay plane above the primary, in ARGB8888 for its alpha
+    if (!m_output->hasOverlayPlane() || isMultiGPU() || !std::ranges::any_of(m_output->getOverlayFormats(), [](const auto& f) { return f.drmFormat == DRM_FORMAT_ARGB8888; })) {
+        reasons |= UL_BLOCK_PLANE;
+        if (!full)
+            return reasons;
+    }
+
+    if ((m_windowTransaction && m_windowTransaction->hasPendingPresentation()) || PCANDIDATE->effects().blocksDirectScanout()) {
+        reasons |= UL_BLOCK_TRANSFORM;
+        if (!full)
+            return reasons;
+    }
+
+    const auto PLACEMENT = underlayPlacement(PCANDIDATE, PVIDEO);
+    if (!PLACEMENT) {
+        reasons |= UL_BLOCK_TRANSFORM;
+        if (!full)
+            return reasons;
+    }
+
+    // getUnderlayResource() took only a dmabuf
+    const auto ATTRS = PVIDEO->m_current.buffer->dmabuf();
+    if (!primaryTakes(ATTRS.format, ATTRS.modifier)) {
+        reasons |= UL_BLOCK_FORMAT;
+        if (!full)
+            return reasons;
+    }
+
+    if (m_underlayFailedOn.surface.lock() == PVIDEO && m_underlayFailedOn.format == ATTRS.format && m_underlayFailedOn.modifier == ATTRS.modifier &&
+        (!PLACEMENT || m_underlayFailedOn.placement == *PLACEMENT)) {
+        reasons |= UL_BLOCK_FAILED;
+        if (!full)
+            return reasons;
+    }
+
+    if (inHDR() || (PLACEMENT && underlayBlockedByCM(PCANDIDATE, PVIDEO, *PLACEMENT)))
+        reasons |= UL_BLOCK_CM;
+
+    // a window's content: what blurs over the hole would blur the hole
+    if (!CANDIDATE->video && PLACEMENT && underlayBlurredOver(PCANDIDATE, PLACEMENT->destination.copy().scale(1.F / m_scale).translate(m_position)))
+        reasons |= UL_BLOCK_BLUR;
+
+    return reasons;
+}
+
+std::optional<CMonitor::SUnderlayCandidate> CMonitor::underlayCandidate() {
+    static auto PUNDERLAY = CConfigValue<Config::INTEGER>("render:underlay");
+
+    // a fullscreen window alone on the monitor, with nothing above it but the cursor: its video. Without one, it is
+    // scanned out directly
+    if (const auto SOLITARY = m_solitaryClient.lock())
+        return SUnderlayCandidate{.window = SOLITARY, .surface = SOLITARY->getUnderlayResource(), .video = true};
+
+    if (*PUNDERLAY < 2 || !m_activeWorkspace || Fullscreen::controller()->getFullscreenWindow(m_self.lock()))
+        return std::nullopt;
+
+    // the focused window on the workspace shown, at rest: what changes is mostly its content
+    const auto WINDOW = Desktop::focusState()->window();
+    if (!WINDOW || WINDOW->m_monitor != m_self || !WINDOW->mapped() || WINDOW->isHidden() || !WINDOW->m_workspace)
+        return std::nullopt;
+
+    const auto SHOWN = m_activeSpecialWorkspace ? m_activeSpecialWorkspace : m_activeWorkspace;
+    if (WINDOW->m_workspace != SHOWN || SHOWN->m_alpha->value() != 1.F || SHOWN->m_renderOffset->value() != Vector2D{})
+        return std::nullopt;
+
+    if (WINDOW->positionAnimation()->isBeingAnimated() || WINDOW->sizeAnimation()->isBeingAnimated() || WINDOW->presentation().dimPercent() > 0.F)
+        return std::nullopt;
+
+    // the composite would blend it: every alpha the renderer multiplies (GLRenderer's opaque test)
+    float alpha = 1.F;
+    for (const auto TYPE : {Desktop::View::WINDOW_ALPHA_FADE, Desktop::View::WINDOW_ALPHA_ACTIVE, Desktop::View::WINDOW_ALPHA_FULLSCREEN, Desktop::View::WINDOW_ALPHA_LAYOUT,
+                            Desktop::View::WINDOW_ALPHA_MOVE_TO_WORKSPACE, Desktop::View::WINDOW_ALPHA_MOVE_FROM_WORKSPACE})
+        alpha *= WINDOW->presentation().alphaValue(TYPE);
+    if (alpha != 1.F)
+        return std::nullopt;
+
+    return SUnderlayCandidate{.window = WINDOW, .surface = WINDOW->getContentUnderlayResource(), .video = false};
+}
+
+// what blurs over a window's content would sample the hole: another window over it (the cached blur samples the
+// wallpaper and layers only, but a window under its blur makes it live), or a top or overlay layer
+bool CMonitor::underlayBlurredOver(PHLWINDOW window, const CBox& hole) {
+    static auto PBLUR = CConfigValue<Config::INTEGER>("decoration:blur:enabled");
+    if (!*PBLUR)
+        return false;
+
+    // the renderer's order (renderWorkspaceWindows): tiled windows, then floating ones as stacked, pinned ones last
+    const auto& WINDOWS        = Desktop::windowState()->windows();
+    const auto  VIDEO_AT       = std::ranges::find(WINDOWS, window);
+    const bool  VIDEO_FLOATING = window->isFloating() && !(window->m_state & WINDOW_STATE_PINNED) && VIDEO_AT != WINDOWS.end();
+
+    for (auto it = WINDOWS.begin(); it != WINDOWS.end(); ++it) {
+        const auto& w = *it;
+        // only what is drawn here: a window on a hidden workspace overlaps in geometry alone
+        if (w == window || !w->mapped() || w->isHidden() || !w->alphaNonZero() || !g_pHyprRenderer->shouldRenderWindow(w, m_self.lock()))
+            continue;
+
+        // drawn under the video's window, so not over its hole: a tiled one under a floating one, or a floating one below it
+        if (VIDEO_FLOATING && (!w->isFloating() || (!(w->m_state & WINDOW_STATE_PINNED) && it < VIDEO_AT)))
+            continue;
+
+        if (w->m_ruleApplicator->noBlur().valueOrDefault() || !w->getFullWindowBoundingBox().overlaps(hole))
+            continue;
+
+        return true;
+    }
+
+    for (const auto LAYER : {ZWLR_LAYER_SHELL_V1_LAYER_TOP, ZWLR_LAYER_SHELL_V1_LAYER_OVERLAY}) {
+        for (auto const& ls : m_layerSurfaceLayers[LAYER]) {
+            if (!ls || !ls->m_ruleApplicator->blur().valueOrDefault())
+                continue;
+
+            if (const auto BOX = ls->surfaceLogicalBox(); BOX && BOX->overlaps(hole))
+                return true;
+        }
+    }
+
+    return false;
+}
+
+std::optional<Aquamarine::COutputState::SBufferPlacement> CMonitor::underlayPlacement(PHLWINDOW window, SP<CWLSurfaceResource> video) {
+    const auto MAINBOX = window->wlSurface()->getSurfaceBoxGlobal();
+    if (!MAINBOX)
+        return std::nullopt;
+
+    // a window's content may be its main surface
+    Vector2D pos = MAINBOX->pos();
+    if (video != window->wlSurface()->resource()) {
+        if (!video->m_role || video->m_role->role() != SURFACE_ROLE_SUBSURFACE)
+            return std::nullopt;
+
+        const auto SUBSURFACE = sc<CSubsurfaceRole*>(video->m_role.get())->m_subsurface.lock();
+        if (!SUBSURFACE)
+            return std::nullopt;
+
+        // its position through all its parents: Firefox's video is a grandchild of the main surface
+        pos += SUBSURFACE->posRelativeToParent();
+    }
+
+    const auto PLACEMENT = placementAt(video, CBox{pos, video->m_current.size});
+    if (!PLACEMENT)
+        return std::nullopt;
+
+    // what appledrm's planes scale: at most 2x up and 4x down, and at least 32x32 on the screen
+    const auto& SRC = PLACEMENT->source;
+    const auto& DST = PLACEMENT->destination;
+    if (DST.w < 32 || DST.h < 32 || DST.w > SRC.w * 2 || DST.h > SRC.h * 2 || DST.w * 4 < SRC.w || DST.h * 4 < SRC.h)
+        return std::nullopt;
+
+    return PLACEMENT;
+}
+
+// the composite is colour-managed by the shader, the video by the DCP alone: it takes a YCbCr
+// layer as SDR, with the primaries its encoding implies and BT.709's transfer function
+bool CMonitor::underlayBlockedByCM(PHLWINDOW window, SP<CWLSurfaceResource> video, const Aquamarine::COutputState::SBufferPlacement& placement) {
+    const bool HAS_DESCRIPTION = video->m_colorManagement.valid() && video->m_colorManagement->hasImageDescription();
+    if (HAS_DESCRIPTION && video->m_colorManagement->isHDR())
+        return true;
+
+    // an ICC profile reaches the composite only
+    if (m_imageDescription->value().icc.present)
+        return true;
+
+    // a window's RGB content reaches the DCP as is: in the output's description, or in one whose primaries alone differ,
+    // which the output's CTM converts (render:non_shader_cm). The CTM takes the whole frame and the composite then skips
+    // its CM, as for a fullscreen window: every other window shown must be in the same description
+    const auto ATTRS = video->m_current.buffer ? video->m_current.buffer->dmabuf() : Aquamarine::SDMABUFAttrs{};
+    if (ATTRS.success && !NFormatUtils::isFormatYUV(ATTRS.format)) {
+        static auto PNONSHADER = CConfigValue<Config::INTEGER>("render:non_shader_cm");
+        const auto  SOURCE     = underlayContentDescription(window, video);
+        if (SOURCE == m_imageDescription)
+            return false;
+
+        if (*PNONSHADER == CM_NS_IGNORE || !canNoShaderCM(SOURCE, true))
+            return true;
+
+        for (auto const& w : Desktop::windowState()->windows()) {
+            if (!w->mapped() || w->isHidden() || !w->wlSurface() || !w->wlSurface()->resource() || !w->presentation().visibleOnMonitor(m_self.lock()))
+                continue;
+
+            const auto SURF = w->wlSurface()->resource()->findWithCM();
+            if ((SURF ? CImageDescription::from(SURF->m_colorManagement->imageDescription()) : getDefaultImageDescription()) != SOURCE)
+                return true;
+        }
+
+        return false;
+    }
+
+    const auto& DESCRIPTION = HAS_DESCRIPTION ? video->m_colorManagement->imageDescription() : getDefaultImageDescription()->value();
+    switch (DESCRIPTION.transferFunction) {
+        case CM_TRANSFER_FUNCTION_SRGB:
+        case CM_TRANSFER_FUNCTION_GAMMA22:
+        case CM_TRANSFER_FUNCTION_BT1886: break;
+        default: return true;
+    }
+
+    // which primaries the DCP takes for BT.601 (525 or 625 lines) is not known
+    switch (placement.ycbcrEncoding) {
+        case Aquamarine::AQ_OUTPUT_YCBCR_ENCODING_BT709: return DESCRIPTION.getPrimaries() != NColorManagement::getPrimaries(CM_PRIMARIES_SRGB);
+        case Aquamarine::AQ_OUTPUT_YCBCR_ENCODING_BT2020: return DESCRIPTION.getPrimaries() != NColorManagement::getPrimaries(CM_PRIMARIES_BT2020);
+        default: return true;
+    }
+}
+
+// what a window's content is in: its own description, else its tree's (findWithCM, as for a fullscreen window), else the default
+PImageDescription CMonitor::underlayContentDescription(PHLWINDOW window, SP<CWLSurfaceResource> content) {
+    if (content->m_colorManagement.valid() && content->m_colorManagement->hasImageDescription())
+        return CImageDescription::from(content->m_colorManagement->imageDescription());
+
+    const auto SURF = window && window->wlSurface() && window->wlSurface()->resource() ? window->wlSurface()->resource()->findWithCM() : nullptr;
+    return SURF ? CImageDescription::from(SURF->m_colorManagement->imageDescription()) : getDefaultImageDescription();
+}
+
+bool CMonitor::ensureUnderlaySwapchain() {
+    if (!m_underlay.swapchain) {
+        const auto BACKEND = m_output->getBackend();
+        if (!BACKEND || !BACKEND->preferredAllocator())
+            return false;
+
+        const auto ALLOCATOR = BACKEND->preferredAllocator();
+
+        const auto PRIMARY   = BACKEND->getPrimary();
+        m_underlay.swapchain = Aquamarine::CSwapchain::create(ALLOCATOR, PRIMARY ? PRIMARY.lock() : BACKEND);
+        if (!m_underlay.swapchain)
+            return false;
+    }
+
+    const auto& OPTIONS = m_underlay.swapchain->currentOptions();
+    if (OPTIONS.format == DRM_FORMAT_ARGB8888 && OPTIONS.scanout && OPTIONS.length == 3 && OPTIONS.size == m_pixelSize)
+        return true;
+
+    // ARGB8888 by name, for its 8-bit alpha, in a layout the output takes; the test checks it on the overlay plane
+    return m_underlay.swapchain->reconfigure(Aquamarine::SSwapchainOptions{
+        .length        = 3,
+        .size          = m_pixelSize,
+        .format        = DRM_FORMAT_ARGB8888,
+        .scanout       = true,
+        .scanoutOutput = m_output,
+    });
+}
+
+bool CMonitor::prepareUnderlay(bool commit) {
+    const auto LEAVE = [this] {
+        const bool WAS_ON = m_underlay.entered;
+        leaveUnderlay();
+
+        // the fullscreen CTM may apply again, before the composite renders for it
+        if (WAS_ON)
+            g_pHyprRenderer->handleFullscreenSettings(m_self.lock());
+
+        return false;
+    };
+
+    // a frame committed later (render:new_render_scheduling's) composites on the primary
+    if (!commit || isUnderlayBlocked())
+        return LEAVE();
+
+    // isUnderlayBlocked() found it, with a surface to take
+    const auto CANDIDATE  = underlayCandidate();
+    const auto PCANDIDATE = CANDIDATE->window;
+    const auto PVIDEO     = CANDIDATE->surface;
+    const auto PLACEMENT  = underlayPlacement(PCANDIDATE, PVIDEO);
+    const auto ATTRS      = PVIDEO->m_current.buffer->dmabuf();
+    if (!PLACEMENT || !ensureUnderlaySwapchain()) {
+        LOG(Log::ERR, "prepareUnderlay: no overlay swapchain for {}", m_name);
+        m_underlayFailedOn = {.surface = PVIDEO, .format = ATTRS.format, .modifier = ATTRS.modifier, .placement = PLACEMENT.value_or(Aquamarine::COutputState::SBufferPlacement{})};
+        return LEAVE();
+    }
+
+    const bool ENTERING = !m_underlay.entered;
+    if (ENTERING) {
+        // a direct scan-out left before this (handleDSleave): the monitor's format is the composite's
+        m_prevDrmFormat    = m_drmFormat;
+        m_underlay.entered = true;
+    }
+
+    // tested on entry, and when the video, its layout or its place changes
+    const bool NEEDS_TEST =
+        ENTERING || m_underlay.surface != PVIDEO || m_underlay.format != ATTRS.format || m_underlay.modifier != ATTRS.modifier || m_underlay.placement != *PLACEMENT;
+
+    m_underlay.surface   = PVIDEO;
+    m_underlay.window    = PCANDIDATE;
+    m_underlay.video     = CANDIDATE->video;
+    m_underlay.format    = ATTRS.format;
+    m_underlay.modifier  = ATTRS.modifier;
+    m_underlay.placement = *PLACEMENT;
+
+    // a window's content: the hole's corners as the renderer rounds the surface (ElementRenderer: the window's, less one)
+    const float ROUND         = CANDIDATE->video ? 0.F : std::max(PCANDIDATE->presentation().rounding() * sc<float>(m_scale) - 1.F, 0.F);
+    const float ROUNDINGPOWER = CANDIDATE->video ? 2.F : PCANDIDATE->presentation().roundingPower();
+    if (ROUND != m_underlay.round || ROUNDINGPOWER != m_underlay.roundingPower) {
+        m_underlay.round         = ROUND;
+        m_underlay.roundingPower = ROUNDINGPOWER;
+        m_damage.damageEntire();
+    }
+
+    if (NEEDS_TEST) {
+        if (m_drmFormat != ATTRS.format) {
+            m_output->state->setFormat(ATTRS.format);
+            m_drmFormat = ATTRS.format;
+        }
+
+        m_output->state->setBuffer(PVIDEO->m_current.buffer.m_buffer);
+        m_output->state->setBufferPlacement(*PLACEMENT);
+        m_output->state->resetExplicitFences();
+
+        // the buffer the frame renders into next: the test needs its layout, not its contents
+        const auto OVERLAY = m_underlay.swapchain->next(nullptr);
+        m_underlay.swapchain->rollback();
+        m_output->state->setOverlayBuffer(OVERLAY);
+
+        if (!OVERLAY || !m_state.test()) {
+            LOG(Log::DEBUG, "prepareUnderlay: the test failed for {} (format {}, modifier {:x})", m_name, NFormatUtils::drmFormatName(ATTRS.format), ATTRS.modifier);
+            underlayFailed();
+            return LEAVE();
+        }
+
+        // the hole follows the video's place: the overlay renders again
+        m_damage.damageEntire();
+    }
+
+    if (ENTERING) {
+        LOG(Log::DEBUG, "Entered an underlay ({}) to {:x}: \"{}\"", CANDIDATE->video ? "video" : "window content", rc<uintptr_t>(PCANDIDATE.get()), PCANDIDATE->metadata().title());
+
+        // a video's composite takes its CM from the shader, not a fullscreen CTM, which would also hit the video; a window's
+        // content and the composite take the CTM if it needs one. Set before the render
+        m_previousFSWindow.reset();
+        m_previousCTMWindow.reset();
+        g_pHyprRenderer->handleFullscreenSettings(m_self.lock());
+        m_damage.damageEntire();
+    }
+
+    return true;
+}
+
+bool CMonitor::commitUnderlay(std::optional<CDamageRing::CTransaction> damage) {
+    const auto PCANDIDATE = m_underlay.window.lock();
+    const auto PVIDEO     = m_underlay.surface.lock();
+
+    // prepareUnderlay(), the render and this run in one go, with no client event between
+    if (!PCANDIDATE || !PVIDEO || !PVIDEO->m_current.buffer) {
+        LOG(Log::ERR, "commitUnderlay: the video went away during the frame");
+        if (damage)
+            damage->rollback();
+        leaveUnderlay();
+        scheduleFrame(Aquamarine::IOutput::AQ_SCHEDULE_RENDER_MONITOR);
+        return false;
+    }
+
+    auto       PBUFFER = PVIDEO->m_current.buffer.m_buffer;
+    const auto ATTRS   = PBUFFER->dmabuf();
+
+    // the video on the primary, under the overlay the frame went into (endRender() set it, with its fence)
+    if (m_drmFormat != ATTRS.format) {
+        m_output->state->setFormat(ATTRS.format);
+        m_drmFormat = ATTRS.format;
+    }
+
+    m_output->state->setBuffer(PBUFFER);
+    m_output->state->setBufferPlacement(m_underlay.placement);
+    m_output->state->resetExplicitFences(); // a client's committed buffer is ready to read
+
+    // a placed buffer is not in output pixels: all of it
+    m_output->state->clearDamage();
+    m_output->state->addDamage(CBox{{}, PVIDEO->m_current.bufferSize});
+
+    g_pHyprRenderer->handleFullscreenSettings(m_self.lock());
+
+    // the video is not drawn, so its frame and feedback go out here, as in a direct scan-out
+    PVIDEO->presentFeedback(Time::steadyNow(), m_self.lock());
+
+    COutputCommitCoordinator::SFrame frame{
+        .kind             = COutputCommitCoordinator::FRAME_UNDERLAY,
+        .damage           = std::move(damage),
+        .scanoutCandidate = PCANDIDATE,
+        .vrr              = m_vrrActive,
+    };
+
+    if (m_commitCoordinator->submit(std::move(frame)) == COutputCommitCoordinator::SUBMIT_FAILED) {
+        LOG(Log::TRACE, "commitUnderlay: the commit failed");
+        return false;
+    }
+
+    // keep the client's buffer while KMS scans it out, as attemptDirectScanout()
+    if (!PBUFFER->lockedByBackend || PBUFFER->m_hlEvents.backendRelease)
+        return true;
+
+    PBUFFER->lock();
+    PBUFFER->onBackendRelease([wb = WP<IHLBuffer>{PBUFFER}] {
+        if (wb)
+            wb->unlock();
+    });
+
+    return true;
+}
+
+// a skipped underlay frame flips nothing, so no presentation paces the clients: answered at once, Firefox commits again
+// at once (about 5,500 skipped frames a second, build 4). Their frame events and the video's feedback go out a refresh
+// after the last ones or the last presentation, as a flip would send them
+void CMonitor::scheduleUnderlayFrameEvents() {
+    if (m_underlayFrameTimer && m_underlayFrameTimer->armed())
+        return;
+
+    const auto PERIOD = std::chrono::duration_cast<Time::steady_dur>(std::chrono::duration<double>(1.0 / std::max(sc<double>(m_refreshRate), 1.0)));
+    const auto NOW    = Time::steadyNow();
+    const auto DUE    = m_underlay.lastFrameEvents + PERIOD;
+
+    if (!m_underlayFrameTimer) {
+        m_underlayFrameTimer = makeShared<CEventLoopTimer>(
+            std::nullopt,
+            [self = m_self](SP<CEventLoopTimer>, void*) {
+                if (const auto MON = self.lock())
+                    MON->sendUnderlayFrameEvents();
+            },
+            nullptr);
+        g_pEventLoopManager->addTimer(m_underlayFrameTimer);
+    }
+
+    m_underlayFrameTimer->updateTimeout(DUE > NOW ? DUE - NOW : Time::steady_dur{0});
+}
+
+void CMonitor::sendUnderlayFrameEvents() {
+    const auto NOW             = Time::steadyNow();
+    m_underlay.lastFrameEvents = NOW;
+
+    const auto PVIDEO = m_underlay.surface.lock();
+    if (PVIDEO && m_underlay.entered)
+        PVIDEO->presentFeedback(NOW, m_self.lock());
+
+    if (m_activeWorkspace)
+        g_pHyprRenderer->sendFrameEventsToWorkspace(m_self.lock(), m_activeWorkspace, NOW);
+    if (m_activeSpecialWorkspace)
+        g_pHyprRenderer->sendFrameEventsToWorkspace(m_self.lock(), m_activeSpecialWorkspace, NOW);
+}
+
+void CMonitor::leaveUnderlay() {
+    const bool OVERLAY_PENDING = m_output && (m_output->state->state().committed & Aquamarine::COutputState::AQ_OUTPUT_STATE_OVERLAY_BUFFER);
+    if (!m_underlay.entered && !m_underlay.active && !OVERLAY_PENDING)
+        return;
+
+    // off with the next commit, the composite's on the primary, which draws what the overlay showed
+    if (m_underlay.active || OVERLAY_PENDING)
+        m_output->state->setOverlayBuffer(nullptr);
+
+    const bool ENTERED = m_underlay.entered;
+
+    // aquamarine keeps the buffer the overlay scans out until the plane goes off
+    m_underlay = {};
+
+    if (!ENTERED)
+        return;
+
+    LOG(Log::DEBUG, "Left a video underlay.");
+
+    // the composite's format back, as handleDSleave()
+    if (m_output->state->state().drmFormat != m_prevDrmFormat)
+        m_output->state->setFormat(m_prevDrmFormat);
+
+    m_drmFormat = m_prevDrmFormat;
+    m_previousFSWindow.reset(); // recalc fs settings
+    m_previousCTMWindow.reset();
+    m_blurFBDirty = true;
+    m_damage.damageEntire();
+    m_state.updateSwapchain();
+}
+
+void CMonitor::underlayFailed() {
+    m_underlayFailedOn = {.surface = m_underlay.surface, .format = m_underlay.format, .modifier = m_underlay.modifier, .placement = m_underlay.placement};
+}
+
 bool CMonitor::attemptDirectScanout() {
     static const auto PSAME     = CConfigValue<Config::INTEGER>("debug:ds_handle_same_buffer");
     static const auto PSAMEFIFO = CConfigValue<Config::INTEGER>("debug:ds_handle_same_buffer_fifo");
@@ -2150,6 +2690,10 @@ bool CMonitor::attemptDirectScanout() {
     if (blockedReason)
         return false;
 
+    // a direct scan-out takes over from an underlay: the overlay goes off with its commit
+    const bool LEFT_UNDERLAY = m_underlay.entered;
+    leaveUnderlay();
+
     const auto PCANDIDATE = m_solitaryClient.lock();
     const auto PSOLITARY  = PCANDIDATE->getSolitaryResource();
     const auto PSURFACE   = PSOLITARY ? PSOLITARY : PCANDIDATE->getVideoResource();
@@ -2157,7 +2701,7 @@ bool CMonitor::attemptDirectScanout() {
     auto       PBUFFER    = PSURFACE->m_current.buffer.m_buffer;
 
     // #TODO this entire bit needs figuring out, vrr goes down the drain without it
-    if (PBUFFER == m_output->state->state().buffer && PLACEMENT == m_output->state->state().bufferPlacement && *PSAME) {
+    if (!LEFT_UNDERLAY && PBUFFER == m_output->state->state().buffer && PLACEMENT == m_output->state->state().bufferPlacement && *PSAME) {
         PSURFACE->presentFeedback(Time::steadyNow(), m_self.lock());
         if (!PSOLITARY) // a video client may wait for frames on its main surface
             PCANDIDATE->wlSurface()->resource()->frame(Time::steadyNow());
@@ -2303,6 +2847,7 @@ void CMonitor::handleDSleave() {
     LOG(Log::DEBUG, "Left a direct scanout.");
     m_lastScanout.reset();
     m_previousFSWindow.reset(); // recalc fs settings
+    m_previousCTMWindow.reset();
     m_directScanoutIsActive = false;
 
     // reset DRM format, but only if needed since it might modeset
@@ -2545,6 +3090,12 @@ std::optional<NColorManagement::PImageDescription> CMonitor::getFSImageDescripti
 
     const auto FS_WINDOW = Fullscreen::controller()->getFullscreenWindow(m_self.lock());
 
+    // a window's content under the composite (render:underlay 2) reaches the DCP as is, as a fullscreen window's would
+    if (!FS_WINDOW && m_underlay.entered && !m_underlay.video) {
+        if (const auto CONTENT = m_underlay.surface.lock())
+            return underlayContentDescription(m_underlay.window.lock(), CONTENT);
+    }
+
     if (!FS_WINDOW)
         return {};
 
@@ -2639,19 +3190,20 @@ static bool isCompatibleTF(eTransferFunction sourceTF, eTransferFunction targetT
 
 // TODO support more drm properties
 bool CMonitor::canNoShaderCM(bool forDSmode) {
+    const auto SRC_DESC = getFSImageDescription();
+    return SRC_DESC.has_value() && canNoShaderCM(SRC_DESC.value(), forDSmode);
+}
+
+bool CMonitor::canNoShaderCM(const PImageDescription& source, bool forDSmode) {
     static auto PNONSHADER = CConfigValue<Config::INTEGER>("render:non_shader_cm");
     if (*PNONSHADER == CM_NS_DISABLE)
         return false;
 
-    const auto SRC_DESC = getFSImageDescription();
-    if (!SRC_DESC.has_value())
-        return false;
-
     const auto& DST_DESC = forDSmode ? m_imageDescription : resources()->m_imageDescription;
-    if (SRC_DESC.value() == DST_DESC)
+    if (source == DST_DESC)
         return true; // no CM needed
 
-    const auto& SRC_DESC_VALUE = SRC_DESC.value()->value();
+    const auto& SRC_DESC_VALUE = source->value();
 
     if (m_imageDescription->value().icc.present)
         return false;
@@ -2935,10 +3487,10 @@ PImageDescription CMonitor::workBufferImageDescription() {
 }
 
 WP<CMonitorResources> CMonitor::resources() {
-    // during a direct scanout the output's format is the client buffer's (a video's NV12, which GL cannot render
-    // to), so the composite's, saved on entry
+    // under an underlay's video, the frame goes to the overlay and keeps its alpha; during a direct scanout the output's
+    // format is the client buffer's (a video's NV12, which GL cannot render to), so the composite's, saved on entry
     const auto OUTPUT_FORMAT = m_lastScanout.expired() ? m_output->state->state().drmFormat : m_prevDrmFormat;
-    const auto DRM_FORMAT    = useFP16() ? DRM_FORMAT_ABGR16161616F : OUTPUT_FORMAT;
+    const auto DRM_FORMAT    = useFP16() ? DRM_FORMAT_ABGR16161616F : m_underlay.entered ? DRM_FORMAT_ARGB8888 : OUTPUT_FORMAT;
     const auto DESC          = workBufferImageDescription();
 
     if (!m_resources || m_resources->m_drmFormat != DRM_FORMAT || m_resources->m_size != m_transformedSize)

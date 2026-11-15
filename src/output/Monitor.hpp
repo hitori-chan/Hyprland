@@ -158,6 +158,32 @@ namespace Monitor {
         bool m_directScanoutIsActive    = false; // for cleanup logic. m_lastScanout.expired() can become true before the DS cleanup if client crashes/exits while DS is active.
         bool m_scanoutNeedsCursorUpdate = false;
 
+        // for the underlay: a fullscreen window's video, or with render:underlay 2 a window's content, on the primary plane,
+        // the rest of the frame composited over it on an overlay plane, with a hole where it shows
+        struct {
+            WP<CWLSurfaceResource>                     surface;              // the video, or the window's content
+            PHLWINDOWREF                               window;               // its window
+            bool                                       video         = true; // a fullscreen window's video, not a window's content
+            float                                      round         = 0.F;  // the hole's corners, in output pixels, as the surface's
+            float                                      roundingPower = 2.F;
+            Aquamarine::COutputState::SBufferPlacement placement;                     // its place on the primary, as last tested
+            uint32_t                                   format   = DRM_FORMAT_INVALID; // its buffer's layout, as last tested
+            uint64_t                                   modifier = DRM_FORMAT_MOD_INVALID;
+            SP<Aquamarine::CSwapchain>                 swapchain;            // the overlay's buffers, which the frame renders into
+            bool                                       entered      = false; // from the first underlay frame to the leave: the primary is in the video's format
+            bool                                       active       = false; // the overlay plane is on
+            bool                                       videoDamaged = false; // a new video buffer since the last commit
+            Time::steady_tp                            lastFrameEvents;      // the clients' last frame events, or the last presentation
+        } m_underlay;
+        SP<CEventLoopTimer> m_underlayFrameTimer; // a skipped underlay frame's frame events, one refresh after the last
+
+        // underlay frames since the start: the overlay rendered, or the primary flipped alone (the video's damage only)
+        struct {
+            uint64_t rendered  = 0;
+            uint64_t videoOnly = 0;
+            uint64_t skipped   = 0; // a video commit with no new buffer: no flip
+        } m_underlayFrames;
+
         // for special fade/blur
         PHLANIMVAR<float> m_specialFade;
         PHLANIMVAR<float> m_specialDim;
@@ -219,6 +245,29 @@ namespace Monitor {
             DS_BLOCK_FORMAT    = (1 << 13),
 
             DS_CHECKS_COUNT = 14,
+        };
+
+        // keep in sync with socket1 output
+        enum eUnderlayBlockReason : uint16_t {
+            UL_OK = 0,
+
+            UL_BLOCK_UNKNOWN   = (1 << 0),
+            UL_BLOCK_USER      = (1 << 1),
+            UL_BLOCK_PLANE     = (1 << 2),
+            UL_BLOCK_MIRROR    = (1 << 3),
+            UL_BLOCK_RECORD    = (1 << 4),
+            UL_BLOCK_SW        = (1 << 5),
+            UL_BLOCK_SHADER    = (1 << 6),
+            UL_BLOCK_TEARING   = (1 << 7),
+            UL_BLOCK_CANDIDATE = (1 << 8),
+            UL_BLOCK_SURFACE   = (1 << 9),
+            UL_BLOCK_TRANSFORM = (1 << 10),
+            UL_BLOCK_FORMAT    = (1 << 11),
+            UL_BLOCK_FAILED    = (1 << 12),
+            UL_BLOCK_CM        = (1 << 13),
+            UL_BLOCK_BLUR      = (1 << 14),
+
+            UL_CHECKS_COUNT = 15,
         };
 
         // keep in sync with socket1 output
@@ -289,6 +338,13 @@ namespace Monitor {
         bool         attemptDirectScanout();
         void         handleDSleave();
         bool         canAttemptDirectScanoutFast() const;
+        uint16_t     isUnderlayBlocked(bool full = false);
+        bool         prepareUnderlay(bool commit);                                    // before a frame: true if it renders into the overlay
+        bool         commitUnderlay(std::optional<CDamageRing::CTransaction> damage); // after it: the video on the primary, the frame over it
+        void         leaveUnderlay();                                                 // the overlay goes off with the next commit
+        void         underlayFailed();
+        void         scheduleUnderlayFrameEvents(); // a skipped underlay frame: the clients' frame events at the refresh
+        void         sendUnderlayFrameEvents();
         bool         isMultiGPU();
         void         setCTM(const Mat3x3& ctm);
         void         onCursorMovedOnMonitor();
@@ -357,12 +413,14 @@ namespace Monitor {
         bool                                                        needsCM();
         /// Can do CM without shader (forDSmode ? check output image description : check workbuffer image description)
         bool                                canNoShaderCM(bool forDSmode = false);
+        bool                                canNoShaderCM(const NColorManagement::PImageDescription& source, bool forDSmode);
         bool                                doesNoShaderCM();
 
         bool                                m_enabled             = false;
         bool                                m_renderingInitPassed = false;
 
         PHLWINDOWREF                        m_previousFSWindow;
+        PHLWINDOWREF                        m_previousCTMWindow; // the window the CTM was last set for: the fullscreen one, or an underlay's
         PHLWINDOWREF                        m_autoHDRWindow;
         bool                                m_needsHDRupdate         = false;
         bool                                m_hdrMetadataFromSurface = false;
@@ -420,18 +478,34 @@ namespace Monitor {
             bool     takes    = false;
         } m_primaryTakesCache;
 
-        // a surface's buffer layout whose direct-scanout test failed: not tried
+        // a surface's buffer layout whose direct-scanout or underlay test failed: not tried
         // again, as each try moves the swapchain to its format and back
-        struct {
+        struct SScanoutFailure {
             WP<CWLSurfaceResource>                     surface;
             uint32_t                                   format   = DRM_FORMAT_INVALID;
             uint64_t                                   modifier = DRM_FORMAT_MOD_INVALID;
             Aquamarine::COutputState::SBufferPlacement placement;
-        } m_dsFailedOn;
+        };
+        SScanoutFailure m_dsFailedOn;
+        SScanoutFailure m_underlayFailedOn;
 
         // a video subsurface over a black fullscreen main surface, scanned out on the primary plane
         std::optional<Aquamarine::COutputState::SBufferPlacement> videoPlacement(PHLWINDOW window, SP<CWLSurfaceResource> video);
         bool                                                      videoBlockedByCM(SP<CWLSurfaceResource> video, const Aquamarine::COutputState::SBufferPlacement& placement);
+        // a video at a global logical box, placed on the primary plane
+        std::optional<Aquamarine::COutputState::SBufferPlacement> placementAt(SP<CWLSurfaceResource> video, const CBox& box);
+        // an underlay's video, anywhere in its window's tree, within the plane's scaling
+        struct SUnderlayCandidate {
+            PHLWINDOW              window;
+            SP<CWLSurfaceResource> surface; // null: the window has none to take
+            bool                   video = true;
+        };
+        std::optional<SUnderlayCandidate>                         underlayCandidate();
+        bool                                                      underlayBlurredOver(PHLWINDOW window, const CBox& hole);
+        NColorManagement::PImageDescription                       underlayContentDescription(PHLWINDOW window, SP<CWLSurfaceResource> content);
+        std::optional<Aquamarine::COutputState::SBufferPlacement> underlayPlacement(PHLWINDOW window, SP<CWLSurfaceResource> video);
+        bool underlayBlockedByCM(PHLWINDOW window, SP<CWLSurfaceResource> video, const Aquamarine::COutputState::SBufferPlacement& placement);
+        bool ensureUnderlaySwapchain();
 
         // Resources
         UP<Monitor::CMonitorResources> m_resources;

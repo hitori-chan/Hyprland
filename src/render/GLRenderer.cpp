@@ -127,6 +127,10 @@ SRenderResult CHyprGLRenderer::endRender(const std::function<void()>& renderingD
     const auto        mode               = m_context.m_mode;
     static auto       PNVIDIAANTIFLICKER = CConfigValue<Config::INTEGER>("opengl:nvidia_anti_flicker");
 
+    // over an underlay's video, the frame goes to the overlay plane with its fence; the primary takes the video's buffer
+    const bool UNDERLAY = mode == RENDER_MODE_NORMAL && m_context.underlay();
+    const auto BUFFER   = m_context.m_currentBuffer;
+
     m_context.m_data.damage = m_context.m_pass.render(m_context, m_context.m_data.damage);
 
     if (mode != RENDER_MODE_TO_BUFFER_READ_ONLY)
@@ -136,8 +140,10 @@ SRenderResult CHyprGLRenderer::endRender(const std::function<void()>& renderingD
         .finalDamage = m_context.m_data.damage,
     };
 
-    if (mode == RENDER_MODE_NORMAL)
-        PMONITOR->m_output->state->setBuffer(m_context.m_currentBuffer);
+    if (UNDERLAY)
+        PMONITOR->m_output->state->setOverlayBuffer(BUFFER);
+    else if (mode == RENDER_MODE_NORMAL)
+        PMONITOR->m_output->state->setBuffer(BUFFER);
 
     // All draws use the same EGL context, so this submission also covers earlier
     // snapshots and aborted draws. Detach their locks before resetting the session.
@@ -173,7 +179,10 @@ SRenderResult CHyprGLRenderer::endRender(const std::function<void()>& renderingD
         const bool asyncReleaseReady = completionFD.isValid() && attachSurfaceBufferReleaseFences(completedBuffers, eglSync->fd());
         if (mode == RENDER_MODE_NORMAL) {
             PMONITOR->m_inFence = eglSync->takeFd();
-            PMONITOR->m_output->state->setExplicitInFence(PMONITOR->m_inFence.get());
+            if (UNDERLAY)
+                PMONITOR->m_output->state->setOverlayBuffer(BUFFER, PMONITOR->m_inFence.get());
+            else
+                PMONITOR->m_output->state->setExplicitInFence(PMONITOR->m_inFence.get());
         }
 
         // This may run inline. Finish all monitor bookkeeping before handing off.

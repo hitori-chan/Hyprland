@@ -49,6 +49,30 @@ void CGLElementRenderer::draw(CRenderContext& ctx, WP<CPreBlurElement> element, 
 void CGLElementRenderer::draw(CRenderContext& ctx, WP<CRectPassElement> element, const CRegion& damage) {
     const auto& m_data = element->m_data;
 
+    // a rounded hole (a window's content): the shape's coverage takes away what is under it, dst * (1 - coverage), so
+    // inside it is (0, 0, 0, 0), outside the corners untouched, and its edge blends with what the plane shows as the
+    // surface's own would
+    if (m_data.punch && m_data.round > 0) {
+        const bool WASBLENDING = g_pHyprOpenGL->blendEnabled();
+        g_pHyprOpenGL->blend(true);
+        g_pHyprOpenGL->blendFunc(GL_ZERO, GL_ONE_MINUS_SRC_ALPHA);
+        g_pHyprOpenGL->renderRect(ctx, m_data.box, CHyprColor(0, 0, 0, 1), {.damage = &damage, .round = m_data.round, .roundingPower = m_data.roundingPower});
+        g_pHyprOpenGL->blendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
+        g_pHyprOpenGL->blend(WASBLENDING);
+        return;
+    }
+
+    // a hole: written, not blended, and not colour-converted, so it stays (0, 0, 0, 0) to the output
+    if (m_data.punch) {
+        const std::array<GLfloat, 4> c = {sc<GLfloat>(m_data.color.r), sc<GLfloat>(m_data.color.g), sc<GLfloat>(m_data.color.b), sc<GLfloat>(m_data.color.a)};
+        CRegion{damage}.intersect(m_data.modifiedBox).forEachRect([&ctx, &c](const auto& RECT) {
+            g_pHyprOpenGL->scissor(ctx, &RECT, ctx.m_data.transformDamage);
+            glClearBufferfv(GL_COLOR, 0, c.data());
+        });
+        g_pHyprOpenGL->disableScissor();
+        return;
+    }
+
     if (m_data.color.a == 1.F || !m_data.blur)
         g_pHyprOpenGL->renderRect(ctx, m_data.box, m_data.color,
                                   {.damage = &damage, .round = m_data.round, .roundingPower = m_data.roundingPower, .workspacePresentation = m_data.workspacePresentation});
