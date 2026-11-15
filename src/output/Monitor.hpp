@@ -439,6 +439,7 @@ namespace Monitor {
 
         PHLWINDOWREF                        m_previousFSWindow;
         PHLWINDOWREF                        m_previousCTMWindow; // the window the CTM was last set for: the fullscreen one, or an underlay's
+        bool                                m_previousFSVideo = false;
         PHLWINDOWREF                        m_autoHDRWindow;
         bool                                m_needsHDRupdate         = false;
         bool                                m_hdrMetadataFromSurface = false;
