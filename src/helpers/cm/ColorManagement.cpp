@@ -518,8 +518,15 @@ RGBAColor NColorManagement::convertColor(RGBAColor color, PImageDescription srcD
         if (settings.needsTonemap)
             color = tonemap(color, settings.dstPrimaries2XYZ, settings.maxLuminance, settings.dstMaxLuminance, settings.dstRefLuminance, settings.srcRefLuminance);
 
+        // the HDR work buffer in extended sRGB, the only such target with the SDR mod, takes it in linear light as the linear work buffer does
+        const bool MOD_LINEAR = dstDesc->value().transferFunction == CM_TRANSFER_FUNCTION_EXT_SRGB;
+        if (settings.needsSDRmod && MOD_LINEAR) {
+            color = saturate(color, settings.dstPrimaries2XYZ, settings.sdrSaturation);
+            color *= settings.sdrBrightnessMultiplier;
+        }
+
         color = fromLinearNit(color, dstDesc->value().transferFunction, settings.dstTFRange);
-        if (settings.needsSDRmod) {
+        if (settings.needsSDRmod && !MOD_LINEAR) {
             color = saturate(color, settings.dstPrimaries2XYZ, settings.sdrSaturation);
             color *= settings.sdrBrightnessMultiplier;
         }

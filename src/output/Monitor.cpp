@@ -2879,7 +2879,8 @@ bool CMonitor::useFP16() {
 }
 
 PImageDescription CMonitor::workBufferImageDescription() {
-    static const auto PFP16TF = CConfigValue<Config::INTEGER>("render:fp16_sdr_tf");
+    static const auto PFP16TF     = CConfigValue<Config::INTEGER>("render:fp16_sdr_tf");
+    static const auto PBLENDSPACE = CConfigValue<Config::INTEGER>("render:hdr_blend_space");
 
     if (!useFP16() && !m_imageDescription->value().icc.present)
         return m_imageDescription;
@@ -2890,6 +2891,25 @@ PImageDescription CMonitor::workBufferImageDescription() {
         value.transferFunction == CM_TRANSFER_FUNCTION_ST2084_PQ || value.transferFunction == CM_TRANSFER_FUNCTION_HLG || value.transferFunction == CM_TRANSFER_FUNCTION_EXT_LINEAR;
 
     const auto& cached = m_cachedInternalDescription->value();
+
+    // HDR in extended sRGB: translucent surfaces blend in a gamma space, as in SDR mode. The range is SDR content's own in HDR (getCMSettings'
+    // srcTFRange with the SDR mod), so SDR content keeps its codes, its white at 1.0, and the blend matches SDR mode's; HDR content goes above 1.0 and
+    // wide-gamut content below 0.0. The final pass decodes it to linear light before the output's transfer function.
+    if (isHDRLikeTF && *PBLENDSPACE == 1 && !value.icc.present) {
+        const SImageDescription             SDR_CONTENT = {.transferFunction = CM_TRANSFER_FUNCTION_SRGB};
+        const SImageDescription::SPCTFRange RANGE       = {.min = SDR_CONTENT.getTFMinLuminance(m_sdrMinLuminance), .max = SDR_CONTENT.getTFMaxLuminance(m_sdrMaxLuminance)};
+
+        if (cached.transferFunction != CM_TRANSFER_FUNCTION_EXT_SRGB || cached.luminances != value.luminances || cached.tfRange != RANGE)
+            m_cachedInternalDescription = CImageDescription::from(SImageDescription{
+                .transferFunction = CM_TRANSFER_FUNCTION_EXT_SRGB,
+                .primariesNameSet = true,
+                .primariesNamed   = NColorManagement::CM_PRIMARIES_SRGB,
+                .primaries        = NColorPrimaries::BT709,
+                .luminances       = value.luminances,
+                .tfRange          = RANGE,
+            });
+        return m_cachedInternalDescription;
+    }
 
     // HDR
     if (isHDRLikeTF || *PFP16TF != 0) {
