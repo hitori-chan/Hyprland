@@ -1127,34 +1127,31 @@ SP<CWLSurfaceResource> CWindow::getSolitaryResource() const {
     if (popupTreeSize())
         return nullptr;
 
-    if (res->m_subsurfaces.size() == 0)
+    if (res->m_subsurfaces.empty() || !res->hasVisibleSubsurface())
         return res;
 
-    if (res->m_subsurfaces.size() >= 1) {
-        if (!res->hasVisibleSubsurface())
-            return res;
+    // the one subsurface with content: one with none (no buffer committed yet, as Firefox's spare one) hides nothing
+    SP<CWLSurfaceResource> surf;
+    for (auto const& subsurf : res->m_subsurfaces) {
+        if (!subsurf || !subsurf->m_surface)
+            continue;
 
-        if (res->m_subsurfaces.size() == 1) {
-            if (res->m_subsurfaces[0].expired() || res->m_subsurfaces[0]->m_surface.expired())
-                return nullptr;
+        const auto& candidate = subsurf->m_surface;
+        if (candidate->m_current.size.x <= 0 || candidate->m_current.size.y <= 0)
+            continue;
 
-            auto subsurf = res->m_subsurfaces[0];
+        // two with content, or one under the main surface, cannot result in a solitary resource
+        if (surf || subsurf->m_zIndex < 0)
+            return nullptr;
 
-            // A subsurface under the main surface cannot result in a solitary resource
-            if (subsurf->m_zIndex < 0)
-                return nullptr;
-
-            auto surf = subsurf->m_surface.lock();
-
-            // check if the subsurface covers the main surface
-            if (!surf || surf->m_subsurfaces.size() != 0 || surf->extends() != res->extends() || !surf->m_current.texture || !surf->m_current.texture->m_opaque)
-                return nullptr;
-
-            return surf;
-        }
+        surf = candidate.lock();
     }
 
-    return nullptr;
+    // check if the subsurface covers the main surface
+    if (!surf || surf->m_subsurfaces.size() != 0 || surf->extends() != res->extends() || !surf->fullyOpaque())
+        return nullptr;
+
+    return surf;
 }
 
 // a video client's layout (mpv's dmabuf-wayland): an opaque black main surface and one
