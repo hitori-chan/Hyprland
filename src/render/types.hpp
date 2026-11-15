@@ -44,6 +44,7 @@ namespace Render {
         float               mouseZoomFactor    = 1.f;
         bool                mouseZoomUseMouse  = true;
         bool                useNearestNeighbor = false;
+        bool                underlay           = false; // into the monitor's overlay, over its underlay's video (CMonitor::m_underlay)
         SP<CSceneResources> sceneResources;
     };
 

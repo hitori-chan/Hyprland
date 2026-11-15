@@ -883,7 +883,8 @@ void CWLSurfaceResource::presentFeedback(const Time::steady_tp& when, PHLMONITOR
         const auto WINDOW = m_hlSurface ? Desktop::View::CWindow::fromView(m_hlSurface->view()) : nullptr;
         if (WINDOW == pMonitor->m_lastScanout)
             FEEDBACK->setPresentationType(true);
-    }
+    } else if (pMonitor->m_underlay.entered && pMonitor->m_underlay.surface == m_self) // an underlay's video, on the primary plane
+        FEEDBACK->setPresentationType(true);
     PROTO::presentation->queueData(std::move(FEEDBACK));
 }
 

@@ -243,9 +243,9 @@ bool CWindowPresentation::opaque(const Render::SWindowRenderPresentation& presen
 
     auto solitaryResource = m_window.getSolitaryResource();
 
-    // a video's main surface is opaque black under its picture
+    // a video's main surface is opaque black under its picture, an underlay's opaque under all its layers
     if (!solitaryResource)
-        return m_window.getVideoResource() != nullptr;
+        return m_window.getVideoResource() != nullptr || m_window.getUnderlayResource() != nullptr;
 
     if (!solitaryResource->m_current.texture)
         return false;

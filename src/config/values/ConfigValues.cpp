@@ -668,6 +668,10 @@ std::vector<SP<IValue>> Values::getConfigValues() {
          */
 
         MS<Int>("render:direct_scanout", "Enables direct scanout.", 0, {.min = 0, .max = 2, .map = OptionMap{{"disable", 0}, {"enable", 1}, {"auto", 2}}}),
+        MS<Int>("render:underlay",
+                "Puts a fullscreen window's video (1), or also the focused window's opaque content (2), on the primary plane under the rest of the frame, composited on an "
+                "overlay plane.",
+                0, {.min = 0, .max = 2, .map = OptionMap{{"disable", 0}, {"fullscreen", 1}, {"window", 2}}}),
         MS<Bool>("render:expand_undersized_textures", "Whether to expand textures that have not yet resized to be larger.", true),
         MS<Bool>("render:xp_mode", "Disable back buffer and bottom layer rendering.", false),
         MS<Int>("render:ctm_animation", "Whether to enable a fade animation for CTM changes.", 2,
