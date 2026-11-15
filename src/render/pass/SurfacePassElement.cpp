@@ -81,11 +81,20 @@ CBox CSurfacePassElement::getTexBox() {
     return m_cachedTexBox;
 }
 
+bool CSurfacePassElement::contentOpaque() const {
+    if (!m_data.texture)
+        return false;
+    if (m_data.texture->m_opaque)
+        return true;
+    // an alpha format (a client's ARGB) is opaque where the client says so, for the buffer it committed
+    return m_data.surface && m_data.surface->m_current.texture == m_data.texture && m_data.surface->fullyOpaque();
+}
+
 bool CSurfacePassElement::needsLiveBlur(Render::CRenderContext& ctx) {
     auto        PSURFACE = Desktop::View::CWLSurface::fromResource(m_data.surface);
 
     const float ALPHA = m_data.alpha * m_data.fadeAlpha * (PSURFACE ? PSURFACE->m_alphaModifier * PSURFACE->m_overallOpacity : 1.F);
-    const bool  BLUR  = m_data.blur && (!m_data.texture || !m_data.texture->m_opaque || ALPHA < 1.F);
+    const bool  BLUR  = m_data.blur && (!contentOpaque() || ALPHA < 1.F);
 
     if (!m_data.pLS && !m_data.pWindow)
         return BLUR;
@@ -102,7 +111,7 @@ bool CSurfacePassElement::needsPrecomputeBlur(Render::CRenderContext& ctx) {
     auto        PSURFACE = Desktop::View::CWLSurface::fromResource(m_data.surface);
 
     const float ALPHA = m_data.alpha * m_data.fadeAlpha * (PSURFACE ? PSURFACE->m_alphaModifier * PSURFACE->m_overallOpacity : 1.F);
-    const bool  BLUR  = m_data.blur && (!m_data.texture || !m_data.texture->m_opaque || ALPHA < 1.F);
+    const bool  BLUR  = m_data.blur && (!contentOpaque() || ALPHA < 1.F);
 
     if (!m_data.pLS && !m_data.pWindow)
         return BLUR;

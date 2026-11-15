@@ -297,7 +297,7 @@ void IElementRenderer::drawSurface(CRenderContext& ctx, WP<CSurfacePassElement> 
 
     const float ALPHA         = m_data.alpha * m_data.fadeAlpha * (PSURFACE ? PSURFACE->m_alphaModifier : 1.F);
     const float OVERALL_ALPHA = PSURFACE ? PSURFACE->m_overallOpacity : 1.F;
-    const bool  BLUR          = m_data.blur && (!TEXTURE->m_opaque || ALPHA < 1.F || OVERALL_ALPHA < 1.F);
+    const bool  BLUR          = m_data.blur && (!element->contentOpaque() || ALPHA < 1.F || OVERALL_ALPHA < 1.F);
 
     auto        windowBox = element->getTexBox();
 
