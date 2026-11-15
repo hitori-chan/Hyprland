@@ -779,6 +779,20 @@ bool CWLSurfaceResource::hasVisibleSubsurface() {
     return false;
 }
 
+// the surface hides all under it: its buffer has no alpha, or its opaque region (surface-local, like its size) covers it
+bool CWLSurfaceResource::fullyOpaque() {
+    if (!m_current.texture)
+        return false;
+
+    if (m_current.texture->m_opaque)
+        return true;
+
+    if (m_current.size.x <= 0 || m_current.size.y <= 0)
+        return false;
+
+    return CRegion{CBox{{}, m_current.size}}.subtract(m_current.opaque).empty();
+}
+
 bool CWLSurfaceResource::isTearing() {
     if (m_enteredOutputs.empty() && m_hlSurface) {
         for (auto& m : State::monitorState()->monitors()) {
