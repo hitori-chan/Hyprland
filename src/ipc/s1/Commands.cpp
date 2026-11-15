@@ -88,6 +88,7 @@ class CCommandFormatter {
     static std::string getWorkspaceData(PHLWORKSPACE workspace, eOutputFormat format);
     static std::string getSolitaryBlockedReason(PHLMONITOR monitor, eOutputFormat format);
     static std::string getDSBlockedReason(PHLMONITOR monitor, eOutputFormat format);
+    static std::string getUnderlayBlockedReason(PHLMONITOR monitor, eOutputFormat format);
     static std::string getTearingBlockedReason(PHLMONITOR monitor, eOutputFormat format);
     static std::string getMonitorData(PHLMONITOR monitor, eOutputFormat format);
 };
@@ -183,6 +184,35 @@ std::string CCommandFormatter::getDSBlockedReason(PHLMONITOR m, eHyprCtlOutputFo
     return format == eHyprCtlOutputFormat::FORMAT_JSON ? std::format("[{}]", reasonStr) : reasonStr;
 }
 
+const std::array<const char*, Monitor::CMonitor::UL_CHECKS_COUNT> UNDERLAY_REASONS_JSON = {
+    "\"UNKNOWN\"",   "\"USER\"",    "\"PLANE\"",     "\"MIRROR\"", "\"RECORD\"", "\"SW\"", "\"SHADER\"", "\"TEARING\"",
+    "\"CANDIDATE\"", "\"SURFACE\"", "\"TRANSFORM\"", "\"FORMAT\"", "\"FAILED\"", "\"CM\"", "\"BLUR\"",
+};
+
+const std::array<const char*, Monitor::CMonitor::UL_CHECKS_COUNT> UNDERLAY_REASONS_TEXT = {
+    "unknown reason",    "user settings",      "no overlay plane",        "monitor mirrors", "screen record/screenshot", "software renders/cursors", "screen shader", "tearing",
+    "missing candidate", "no surface to take", "surface transformations", "buffer layout",   "activation failed",        "color management",         "blur over it",
+};
+
+std::string CCommandFormatter::getUnderlayBlockedReason(PHLMONITOR m, eHyprCtlOutputFormat format) {
+    const auto reasons = m->isUnderlayBlocked(true);
+    if (!reasons)
+        return "null";
+
+    std::string reasonStr = "";
+    const auto  TEXTS     = format == eHyprCtlOutputFormat::FORMAT_JSON ? UNDERLAY_REASONS_JSON : UNDERLAY_REASONS_TEXT;
+
+    for (int i = 0; i < Monitor::CMonitor::UL_CHECKS_COUNT; i++) {
+        if (reasons & (1 << i)) {
+            if (reasonStr != "")
+                reasonStr += ",";
+            reasonStr += TEXTS[i];
+        }
+    }
+
+    return format == eHyprCtlOutputFormat::FORMAT_JSON ? std::format("[{}]", reasonStr) : reasonStr;
+}
+
 const std::array<const char*, Monitor::CMonitor::TC_CHECKS_COUNT> TEARING_REASONS_JSON = {
     "\"UNKNOWN\"", "\"NOT_TORN\"", "\"USER\"", "\"ZOOM\"", "\"SUPPORT\"", "\"CANDIDATE\"", "\"WINDOW\"", "\"HW_CURSOR\"",
 };
@@ -256,6 +286,9 @@ std::string CCommandFormatter::getMonitorData(PHLMONITOR m, eHyprCtlOutputFormat
     "tearingBlockedBy": {},
     "directScanoutTo": "{:x}",
     "directScanoutBlockedBy": {},
+    "underlayTo": "{:x}",
+    "underlayBlockedBy": {},
+    "underlayFrames": {{"rendered": {}, "videoOnly": {}, "skipped": {}}},
     "disabled": {},
     "currentFormat": "{}",
     "mirrorOf": "{}",
@@ -311,6 +344,11 @@ std::string CCommandFormatter::getMonitorData(PHLMONITOR m, eHyprCtlOutputFormat
             getTearingBlockedReason(m, format),
             rc<uint64_t>(m->m_lastScanout.get()),
             getDSBlockedReason(m, format),
+            rc<uint64_t>(m->m_underlay.active ? m->m_underlay.surface.get() : nullptr),
+            getUnderlayBlockedReason(m, format),
+            m->m_underlayFrames.rendered,
+            m->m_underlayFrames.videoOnly,
+            m->m_underlayFrames.skipped,
             tf(!m->m_enabled),
             formatToString(m->m_output->state->state().drmFormat),
             m->m_mirrorOf ? std::format("{}", m->m_mirrorOf->m_id) : "none",
@@ -327,7 +365,7 @@ std::string CCommandFormatter::getMonitorData(PHLMONITOR m, eHyprCtlOutputFormat
             "Monitor {} (ID {}):\n\t{}x{}@{:.5f} at {}x{}\n\tdescription: {}\n\tmake: {}\n\tmodel: {}\n\tphysical size (mm): {}x{}\n\tserial: {}\n\tactive workspace: {} ({})\n\t"
             "special workspace: {} ({})\n\treserved: {} {} {} {}\n\tscale: {}\n\ttransform: {}\n\tfocused: {}\n\t"
             "dpmsStatus: {}\n\tvrr: {}\n\tsolitary: {:x}\n\tsolitaryBlockedBy: {}\n\tactivelyTearing: {}\n\ttearingBlockedBy: {}\n\tdirectScanoutTo: "
-            "{:x}\n\tdirectScanoutBlockedBy: {}\n\tdisabled: "
+            "{:x}\n\tdirectScanoutBlockedBy: {}\n\tunderlayTo: {:x}\n\tunderlayBlockedBy: {}\n\tunderlayFrames: {} rendered, {} video-only, {} skipped\n\tdisabled: "
             "{}\n\tcurrentFormat: {}\n\tmirrorOf: "
             "{}\n\tavailableModes: {}\n\tcolorManagementPreset: {}\n\tsdrBrightness: {}\n\tsdrSaturation: {}\n\tsdrMinLuminance: {}\n\tsdrMaxLuminance: "
             "{}\n\thardwareCursorsInUse: {}\n\thardwareDetails:\n\t\tbackend: {}\n\t\thdr: {}\n\t\tchroma: {}\n\t\tbt2020: {}\n\t\tvrrCapable: {}\n\n",
@@ -360,6 +398,11 @@ std::string CCommandFormatter::getMonitorData(PHLMONITOR m, eHyprCtlOutputFormat
             getTearingBlockedReason(m, format),
             rc<uint64_t>(m->m_lastScanout.get()),
             getDSBlockedReason(m, format),
+            rc<uint64_t>(m->m_underlay.active ? m->m_underlay.surface.get() : nullptr),
+            getUnderlayBlockedReason(m, format),
+            m->m_underlayFrames.rendered,
+            m->m_underlayFrames.videoOnly,
+            m->m_underlayFrames.skipped,
             !m->m_enabled,
             formatToString(m->m_output->state->state().drmFormat),
             m->m_mirrorOf ? std::format("{}", m->m_mirrorOf->m_id) : "none",

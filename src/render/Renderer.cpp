@@ -786,6 +786,19 @@ void IHyprRenderer::renderWindow(CRenderContext& ctx, PHLWINDOW pWindow, PHLMONI
                 if (s->m_current.size.x < 1 || s->m_current.size.y < 1)
                     return;
 
+                // an underlay's video is on the primary plane: a hole in the overlay replaces what is under it, what is over it blends
+                if (ctx.underlay() && ctx.m_underlay.surface == s) {
+                    CRectPassElement::SRectData data;
+                    data.box           = ctx.m_underlay.hole;
+                    data.color         = CHyprColor(0, 0, 0, 0);
+                    data.round         = sc<int>(std::round(ctx.m_underlay.round));
+                    data.roundingPower = ctx.m_underlay.roundingPower;
+                    data.punch         = true;
+                    addPassElement(ctx, makeUnique<CRectPassElement>(data));
+                    renderdata.surfaceCounter++;
+                    return;
+                }
+
                 renderdata.localPos    = s == pWindow->wlSurface()->resource() ? offset : offset - pWindow->contentOffset();
                 renderdata.texture     = s->m_current.texture;
                 renderdata.surface     = s;
@@ -1961,8 +1974,18 @@ bool IHyprRenderer::beginRender(PHLMONITOR pMonitor, CRegion& damage, eRenderMod
 
     int bufferAge = 0;
 
+    // over an underlay's video, the frame goes to the overlay's swapchain, in its own format (the primary's is the video's)
+    const bool UNDERLAY = options.underlay && !buffer && mode == RENDER_MODE_NORMAL && pMonitor->m_underlay.swapchain && pMonitor->m_underlay.surface;
+    if (UNDERLAY)
+        m_context.m_underlay = {.active        = true,
+                                .surface       = pMonitor->m_underlay.surface,
+                                .hole          = pMonitor->m_underlay.placement.destination,
+                                .round         = pMonitor->m_underlay.round,
+                                .roundingPower = pMonitor->m_underlay.roundingPower};
+
     if (!buffer) {
-        m_context.m_currentBuffer = pMonitor->m_output->swapchain->next(&bufferAge);
+        const auto SWAPCHAIN      = UNDERLAY ? pMonitor->m_underlay.swapchain : pMonitor->m_output->swapchain;
+        m_context.m_currentBuffer = SWAPCHAIN->next(&bufferAge);
         if (!m_context.m_currentBuffer) {
             LOG(Log::ERR, "Failed to acquire swapchain buffer for {}", pMonitor->m_name);
             return false;
@@ -1973,7 +1996,8 @@ bool IHyprRenderer::beginRender(PHLMONITOR pMonitor, CRegion& damage, eRenderMod
 
     initRender();
 
-    if (!initRenderBuffer(m_context, m_context.m_currentBuffer, pMonitor->m_output->state->state().drmFormat)) {
+    const auto FORMAT = UNDERLAY ? pMonitor->m_underlay.swapchain->currentOptions().format : pMonitor->m_output->state->state().drmFormat;
+    if (!initRenderBuffer(m_context, m_context.m_currentBuffer, FORMAT)) {
         LOG(Log::ERR, "failed to start a render pass for output {}, no RBO could be obtained", pMonitor->m_name);
         return false;
     }
@@ -2012,8 +2036,13 @@ void IHyprRenderer::abortRender() {
     if (!m_context.active())
         return;
 
-    if (m_context.m_swapchainAcquired)
-        m_context.m_data.pMonitor->m_output->swapchain->rollback();
+    if (m_context.m_swapchainAcquired) {
+        const auto PMONITOR = m_context.m_data.pMonitor;
+        if (!m_context.underlay())
+            PMONITOR->m_output->swapchain->rollback();
+        else if (PMONITOR->m_underlay.swapchain)
+            PMONITOR->m_underlay.swapchain->rollback();
+    }
 
     finishRender();
 }
@@ -2365,7 +2394,7 @@ void IHyprRenderer::renderMonitor(PHLMONITOR pMonitor, bool commit) {
 
     // needsFrame can be cleared by commits that didnt consume our damage like a
     // commit while a pageflip was in flight, so pending damage must keep the frame alive.
-    if (!pMonitor->m_output->needsFrame && pMonitor->m_forceFullFrames == 0 && !pMonitor->m_damage.hasChanged())
+    if (!pMonitor->m_output->needsFrame && pMonitor->m_forceFullFrames == 0 && !pMonitor->m_damage.hasChanged() && !pMonitor->m_underlay.videoDamaged)
         return;
 
     if (!pMonitor->m_commitCoordinator->canBeginFrame()) {
@@ -2436,12 +2465,42 @@ void IHyprRenderer::renderMonitor(PHLMONITOR pMonitor, bool commit) {
         renderOptions.useNearestNeighbor = false;
     }
 
-    const bool                                        ZOOM_DAMAGE_ENTIRE = pMonitor->m_zoomController.shouldDamageEntire(renderOptions.mouseZoomFactor);
+    // a fullscreen video under the frame (CMonitor::m_underlay): the video goes to the primary plane, the frame to the
+    // overlay with a hole where the video shows. Decided before the render, which picks the buffer it renders into
+    renderOptions.underlay = pMonitor->prepareUnderlay(commit);
+
+    const bool ZOOM_DAMAGE_ENTIRE = pMonitor->m_zoomController.shouldDamageEntire(renderOptions.mouseZoomFactor);
+
+    // only the video changed (its damage goes to m_underlay.videoDamaged): the primary flips alone, and the overlay, left
+    // out of the commit, stays on the screen as last rendered
+    if (renderOptions.underlay && pMonitor->m_underlay.active && !pMonitor->m_damage.hasChanged() && pMonitor->m_forceFullFrames == 0 && damageBlinkCleanup == 0 &&
+        !ZOOM_DAMAGE_ENTIRE) {
+        pMonitor->m_underlay.videoDamaged = false;
+
+        // no new buffer (Firefox commits its layers about 118 times a second, its video 30): no commit; the frame events
+        // and the video's feedback at the refresh, as a flip of the same buffer would give them. A cursor moved or
+        // changed goes to its plane only with a commit, as direct scanout's does: the same buffer flips then
+        const auto PVIDEO = pMonitor->m_underlay.surface.lock();
+        if (PVIDEO && PVIDEO->m_current.buffer && PVIDEO->m_current.buffer.m_buffer == pMonitor->m_output->state->state().buffer && !pMonitor->m_scanoutNeedsCursorUpdate) {
+            pMonitor->m_underlayFrames.skipped++;
+            pMonitor->scheduleUnderlayFrameEvents();
+            return;
+        }
+
+        pMonitor->m_scanoutNeedsCursorUpdate = false;
+        pMonitor->m_underlayFrames.videoOnly++;
+        pMonitor->commitUnderlay(std::nullopt);
+        return;
+    }
 
     CRegion                                           damage, finalDamage;
     std::optional<Monitor::CDamageRing::CTransaction> damageTransaction;
     if (!beginRender(pMonitor, damage, RENDER_MODE_NORMAL, {}, nullptr, false, renderOptions, &damageTransaction)) {
         LOG(Log::ERR, "renderer: couldn't beginRender()!");
+        if (renderOptions.underlay) {
+            pMonitor->underlayFailed();
+            pMonitor->leaveUnderlay();
+        }
         return;
     }
     bool              finishing = false;
@@ -2450,7 +2509,8 @@ void IHyprRenderer::renderMonitor(PHLMONITOR pMonitor, bool commit) {
             abortRender();
     });
 
-    // if we have no tracking or full tracking, invalidate the entire monitor
+    // if we have no tracking or full tracking, invalidate the entire monitor. An underlay's overlay renders what its buffer's
+    // age asks: the ring holds only overlay frames since the entry, which damaged everything
     if (*PDAMAGETRACKINGMODE == DAMAGE_TRACKING_NONE || *PDAMAGETRACKINGMODE == DAMAGE_TRACKING_MONITOR || pMonitor->m_forceFullFrames > 0 || damageBlinkCleanup > 0 ||
         ZOOM_DAMAGE_ENTIRE)
         damage = {0, 0, sc<int>(pMonitor->m_transformedSize.x) * 10, sc<int>(pMonitor->m_transformedSize.y) * 10};
@@ -2548,11 +2608,16 @@ void IHyprRenderer::renderMonitor(PHLMONITOR pMonitor, bool commit) {
 
     Event::bus()->m_events.render.stage.emit({RENDER_POST, pMonitor, std::nullopt});
 
-    pMonitor->m_output->state->addDamage(frameDamage);
     bool submitted = true;
-    if (commit)
+    if (renderOptions.underlay) {
+        pMonitor->m_underlay.videoDamaged = false;
+        pMonitor->m_underlayFrames.rendered++;
+        submitted = pMonitor->commitUnderlay(std::move(damageTransaction));
+    } else if (commit) {
+        pMonitor->m_output->state->addDamage(frameDamage);
         submitted = commitPendingAndDoExplicitSync(pMonitor, std::move(damageTransaction), renderResult.finalDamage);
-    else {
+    } else {
+        pMonitor->m_output->state->addDamage(frameDamage);
         if (damageTransaction)
             damageTransaction->commit();
         pMonitor->m_commitCoordinator->stageRenderedDamage(renderResult.finalDamage, pMonitor->needsACopyFB());
@@ -2696,6 +2761,7 @@ void IHyprRenderer::handleFullscreenSettings(PHLMONITOR pMonitor) {
                 LOG(Log::INFO, "[CM] Auto HDR: changing monitor cm to {}", sc<uint8_t>(targetCM));
                 pMonitor->applyCMType(targetCM, targetSDREOTF);
                 pMonitor->m_previousFSWindow.reset(); // trigger CTM update
+                pMonitor->m_previousCTMWindow.reset();
             }
 
             const auto WANTED  = wantHDR ? createHDRMetadata(pMonitor->m_imageDescription->value(), pMonitor) : NO_HDR_METADATA;
@@ -2735,14 +2801,24 @@ void IHyprRenderer::handleFullscreenSettings(PHLMONITOR pMonitor) {
     if (*PCT)
         pMonitor->m_output->state->setContentType(NContentType::toDRM(FULLSCREEN_WINDOW ? FULLSCREEN_WINDOW->getContentType() : CONTENT_TYPE_NONE));
 
-    if (FULLSCREEN_WINDOW != pMonitor->m_previousFSWindow || (!FULLSCREEN_WINDOW && pMonitor->m_noShaderCTM) || pMonitor->m_ctmUpdated) {
-        const bool INTEROP  = (*PNSINTEROP == 1 || (*PNSINTEROP == 2 && FULLSCREEN_WINDOW && FULLSCREEN_WINDOW->getContentType() == CONTENT_TYPE_NONE));
-        bool       resetCTM = !FULLSCREEN_WINDOW;
-        if (FULLSCREEN_WINDOW) {
+    // a window's content under the composite (render:underlay 2) reaches the DCP as is, as a fullscreen window's in a direct
+    // scan-out: the CTM converts it, and the composite skips its CM (getFSImageDescription() gives the content's)
+    const bool CONTENT_UNDERLAY = pMonitor->m_underlay.entered && !pMonitor->m_underlay.video;
+    const auto CTM_WINDOW       = CONTENT_UNDERLAY ? pMonitor->m_underlay.window.lock() : FULLSCREEN_WINDOW;
+    const bool RAW              = CONTENT_UNDERLAY || !pMonitor->m_lastScanout.expired();
+
+    if (CTM_WINDOW != pMonitor->m_previousCTMWindow || (!CTM_WINDOW && pMonitor->m_noShaderCTM) || pMonitor->m_ctmUpdated) {
+        pMonitor->m_previousCTMWindow = CTM_WINDOW;
+
+        // the display's CTM would also hit an underlay's video on the primary: its frame takes the shader's CM, as a windowed one
+        const bool UNDERLAY = pMonitor->m_underlay.entered && pMonitor->m_underlay.video;
+        const bool INTEROP  = (*PNSINTEROP == 1 || (*PNSINTEROP == 2 && CTM_WINDOW && CTM_WINDOW->getContentType() == CONTENT_TYPE_NONE));
+        bool       resetCTM = !CTM_WINDOW || UNDERLAY;
+        if (CTM_WINDOW && !UNDERLAY) {
             if (*PNONSHADER == CM_NS_IGNORE)
                 resetCTM = true;
-            else if (const auto FS_DESC = pMonitor->getFSImageDescription(); pMonitor->needsCM() && pMonitor->canNoShaderCM(!pMonitor->m_lastScanout.expired()) &&
-                     FS_DESC.has_value() && (*PNONSHADER != CM_NS_ONDEMAND || !pMonitor->m_lastScanout.expired())) {
+            else if (const auto FS_DESC = pMonitor->getFSImageDescription();
+                     pMonitor->needsCM() && pMonitor->canNoShaderCM(RAW) && FS_DESC.has_value() && (*PNONSHADER != CM_NS_ONDEMAND || RAW)) {
                 LOG(Log::INFO, "[CM] Updating fullscreen CTM");
                 pMonitor->m_noShaderCTM = true;
                 pMonitor->m_ctmUpdated  = false;
@@ -3085,6 +3161,13 @@ void IHyprRenderer::damageSurface(SP<CWLSurfaceResource> pSurface, double x, dou
             continue;
         if (!EXTENTS.overlaps(m->logicalBox()))
             continue;
+
+        // an underlay's video is on the primary plane, a hole in the frame: its new buffer flips the primary alone
+        if (m->m_underlay.entered && m->m_underlay.surface == pSurface) {
+            m->m_underlay.videoDamaged = true;
+            m->scheduleFrame(Aquamarine::IOutput::AQ_SCHEDULE_NEEDS_FRAME);
+            continue;
+        }
 
         m->addDamage(surfaceDamageToPixels(damageBox, POSITION - m->m_position, m->m_scale));
     }

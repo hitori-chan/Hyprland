@@ -1464,7 +1464,9 @@ WP<CShader> CHyprOpenGLImpl::renderToFBInternal(CRenderContext& ctx, SP<ITexture
         default: RASSERT(false, "tex->m_iTarget unsupported!");
     }
 
-    if (data.finalMonitorCM || (ctx.m_data.currentWindow && ctx.m_data.currentWindow->m_ruleApplicator->RGBX().valueOrDefault()))
+    // the final copy flattens the frame (an output buffer's alpha is not shown), but an underlay's overlay blends over the
+    // video on the primary plane: it keeps its alpha, which the CM un-premultiplies and premultiplies again
+    if ((data.finalMonitorCM && !ctx.underlay()) || (ctx.m_data.currentWindow && ctx.m_data.currentWindow->m_ruleApplicator->RGBX().valueOrDefault()))
         shaderFeatures &= ~SH_FEAT_RGBA;
 
     const auto surface                       = ctx.m_data.surface;

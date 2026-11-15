@@ -15,6 +15,7 @@ namespace Monitor {
         enum eFrameKind : uint8_t {
             FRAME_COMPOSED = 0,
             FRAME_DIRECT_SCANOUT,
+            FRAME_UNDERLAY, // a video on the primary, the frame over it on the overlay
         };
 
         enum eSubmitResult : uint8_t {
