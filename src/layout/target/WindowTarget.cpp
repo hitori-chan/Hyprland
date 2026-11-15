@@ -25,6 +25,8 @@
 
 #include <hyprutils/utils/ScopeGuard.hpp>
 
+#include <numeric>
+
 using namespace Hyprutils::Utils;
 using namespace Layout;
 
@@ -45,7 +47,47 @@ eTargetType CWindowTarget::type() {
 void CWindowTarget::setPositionGlobal(const STargetBox& box, uint8_t flags) {
     ITarget::setPositionGlobal(box, flags);
 
+    if (m_floating)
+        m_box.logicalBox = onPixelGrid(m_box.logicalBox);
+
     updatePos(flags);
+}
+
+// At a fractional scale, a floating window's box with an edge between two pixels: no buffer fills it. The client
+// rounds its buffer to whole pixels (Firefox at 1.5 renders a 1561-wide window into 2341 pixels, which the renderer
+// then stretches across 2341.5) and its opaque region to whole logical pixels, a pixel short of the box. On its
+// monitor's pixel grid, the box is whole pixels: its position the nearest multiple of the smallest logical step that
+// is a whole number of pixels (2 at 1.5, 4 at 1.25), its size a multiple of it within the client's limits.
+CBox CWindowTarget::onPixelGrid(const CBox& box) {
+    const auto MONITOR = m_space && m_space->workspace() ? m_space->workspace()->m_monitor.lock() : (m_window ? m_window->m_monitor.lock() : nullptr);
+    if (!MONITOR || !m_window || m_window->backend().isX11() || Fullscreen::controller()->isFullscreen(m_window.lock()))
+        return box;
+
+    // the scale in 120ths, as wp_fractional_scale sends it
+    const int N = sc<int>(std::round(MONITOR->m_scale * 120.F));
+    if (N <= 0 || std::abs(N / 120.F - MONITOR->m_scale) > 1e-4F)
+        return box;
+
+    const int STEP = 120 / std::gcd(N, 120);
+    if (STEP <= 1 || STEP > 8)
+        return box;
+
+    // a size rounds down, as a client that keeps a pixel more than it was given (Firefox, its size saved at 1.5)
+    // would otherwise grow by a step at each start; up only to the client's minimum
+    const auto NEAREST = [STEP](double v) { return std::round(v / STEP) * STEP; };
+    const auto FIT     = [STEP](double v, double lo, double hi) {
+        for (const double C : {std::floor(v / STEP) * STEP, std::ceil(v / STEP) * STEP}) {
+            if (C >= std::max(lo, sc<double>(STEP)) && (hi <= 0 || C <= hi))
+                return C;
+        }
+        return v;
+    };
+
+    const auto MIN = minSize().value_or(Vector2D{});
+    const auto MAX = maxSize().value_or(Vector2D{});
+    const auto POS = MONITOR->m_position;
+
+    return CBox{NEAREST(box.x - POS.x) + POS.x, NEAREST(box.y - POS.y) + POS.y, FIT(box.w, MIN.x, MAX.x), FIT(box.h, MIN.y, MAX.y)};
 }
 
 void CWindowTarget::updatePos(uint8_t flags) {
