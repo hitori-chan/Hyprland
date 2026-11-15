@@ -1655,6 +1655,32 @@ SP<IFramebuffer> IHyprRenderer::getWorkBuffer(CRenderContext& ctx, std::optional
     return ctx.sceneResources() ? ctx.sceneResources()->prepareWorkBuffer(std::move(framebuffer)) : framebuffer;
 }
 
+// whether another window may show under PWINDOW's blur: one drawn on its monitor whose box, its shadow included, comes
+// within the blur's spread of PWINDOW's
+static bool blurReachesAnotherWindow(PHLWINDOW pWindow) {
+    static auto PBLURSIZE   = CConfigValue<Config::INTEGER>("decoration:blur:size");
+    static auto PBLURPASSES = CConfigValue<Config::INTEGER>("decoration:blur:passes");
+
+    const auto  MONITOR = pWindow->m_monitor.lock();
+    if (!MONITOR)
+        return true;
+
+    // the dual Kawase blur spreads about size * 2^passes pixels; twice that, in logical pixels, is past its last tap
+    const double REACH = *PBLURSIZE * std::pow(2.0, *PBLURPASSES) * 2.0;
+    auto         box   = pWindow->getFullWindowBoundingBox();
+    box.expand(REACH);
+
+    for (auto const& w : Desktop::windowState()->windows()) {
+        if (w == pWindow || !w->mapped() || w->isHidden() || !g_pHyprRenderer->shouldRenderWindow(w, MONITOR))
+            continue;
+
+        if (w->getFullWindowBoundingBox().overlaps(box))
+            return true;
+    }
+
+    return false;
+}
+
 bool IHyprRenderer::shouldUseNewBlurOptimizations(CRenderContext& ctx, PHLLS pLayer, PHLWINDOW pWindow) {
     static auto PBLURNEWOPTIMIZE = CConfigValue<Config::INTEGER>("decoration:blur:new_optimizations");
     static auto PBLURXRAY        = CConfigValue<Config::INTEGER>("decoration:blur:xray");
@@ -1672,6 +1698,11 @@ bool IHyprRenderer::shouldUseNewBlurOptimizations(CRenderContext& ctx, PHLLS pLa
         return false;
 
     if ((*PBLURNEWOPTIMIZE && pWindow && !pWindow->isFloating() && !pWindow->presentation().onSpecialWorkspace()) || *PBLURXRAY)
+        return true;
+
+    // a floating window with no other window within its blur's reach has only what the cached blur holds under it:
+    // the cached blur shows what a live one would, without the pass reading the scene back every frame
+    if (*PBLURNEWOPTIMIZE && pWindow && pWindow->isFloating() && !pWindow->presentation().onSpecialWorkspace() && !blurReachesAnotherWindow(pWindow))
         return true;
 
     if ((pLayer && pLayer->m_ruleApplicator->xray().valueOrDefault() == 1) || (pWindow && pWindow->m_ruleApplicator->xray().valueOrDefault()))
