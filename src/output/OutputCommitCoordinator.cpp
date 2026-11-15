@@ -68,6 +68,10 @@ bool COutputCommitCoordinator::canSubmitAsync(const SFrame& frame) const {
     if (!asyncEnabled() || m_pending)
         return false;
 
+    // an async commit does not carry the overlay plane
+    if (frame.kind == FRAME_UNDERLAY)
+        return false;
+
     const auto CAPS = m_monitor->m_output->commitCapabilities();
     if (frame.vrr && !(CAPS & Aquamarine::IOutput::AQ_OUTPUT_COMMIT_CAPABILITY_VRR))
         return false;
@@ -126,6 +130,7 @@ COutputCommitCoordinator::eSubmitResult COutputCommitCoordinator::submitSynchron
 
     PROTO::presentation->tagQueued(m_monitor->m_self.lock(), 0, frame.tearing, frame.vrr);
 
+    // an underlay commits as a composed frame does (the cursor's preCommit hook), with the video's buffer on the primary
     bool ok = frame.kind == FRAME_DIRECT_SCANOUT ? m_monitor->m_output->commit() : m_monitor->m_state.commit();
     if (!ok && frame.kind == FRAME_COMPOSED && m_monitor->m_inFence.isValid()) {
         m_monitor->m_output->state->resetExplicitFences();
@@ -193,6 +198,9 @@ void COutputCommitCoordinator::submitted(SFrame& frame, bool async) {
         }
     }
 
+    if (frame.kind == FRAME_UNDERLAY)
+        m_monitor->m_underlay.active = true;
+
     if (!async && frame.kind == FRAME_COMPOSED)
         m_monitor->m_directScanoutIsActive = false;
 
@@ -238,7 +246,12 @@ void COutputCommitCoordinator::failed(SFrame&& frame, bool rollbackSwapchain) {
         m_monitor->m_output->state->setBuffer(nullptr);
         m_monitor->m_lastScanout.reset();
         m_monitor->m_previousFSWindow.reset();
+        m_monitor->m_previousCTMWindow.reset();
     }
+
+    // not tried again: the next frame leaves the underlay, and composites on the primary
+    if (frame.kind == FRAME_UNDERLAY)
+        m_monitor->underlayFailed();
 
     m_monitor->m_tearingState.busy = false;
     m_monitor->m_damage.damageEntire();

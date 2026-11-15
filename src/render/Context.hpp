@@ -81,6 +81,17 @@ namespace Render {
         bool                               m_renderingCapture     = false;
         bool                               m_swapchainAcquired    = false;
 
+        // a frame for the overlay plane over an underlay's video: the video's surface is a hole the plane shows through,
+        // and the output keeps the frame's alpha
+        struct {
+            bool                   active = false;
+            WP<CWLSurfaceResource> surface;
+            CBox                   hole;                // in output pixels: the video's place on the primary plane
+            float                  round         = 0.F; // a window's content: its corners, as the renderer rounds the surface
+            float                  roundingPower = 2.F;
+        } m_underlay;
+        bool underlay() const;
+
         struct {
             bool fakeFrame            = false;
             bool offloadedFramebuffer = false;
