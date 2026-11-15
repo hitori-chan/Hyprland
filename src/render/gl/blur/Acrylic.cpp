@@ -30,7 +30,7 @@ static float srgbToLinear(float value) {
 static float acrylicLuminanceScale(CRenderContext& ctx) {
     const auto INTERMEDIATE = getDefaultImageDescription();
     const auto WORKBUFFER   = g_pHyprRenderer->workBufferImageDescription(ctx);
-    if (!WORKBUFFER)
+    if (!WORKBUFFER || blurInWorkBufferSpace(ctx))
         return 1.F;
 
     const auto MINIMUM = INTERMEDIATE->value().getTFMinLuminance();

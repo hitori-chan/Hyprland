@@ -254,10 +254,19 @@ vec4
     vec4 mirrorColor = fromLinearNit(pixColor, CM_TRANSFER_FUNCTION_SRGB,
                                      srcTF == CM_TRANSFER_FUNCTION_GAMMA22 || srcTF == CM_TRANSFER_FUNCTION_SRGB ? srcTFRange : vec2(SDR_MIN_LUMINANCE, SDR_MAX_LUMINANCE));
 #endif
+#if USE_SDR_MOD
+    // the HDR work buffer in extended sRGB, the only such target with the SDR mod, takes it in linear light as the linear work buffer does
+    if (dstTF == CM_TRANSFER_FUNCTION_EXT_SRGB) {
+        pixColor = saturate(pixColor, dstxyz, sdrSaturation);
+        pixColor.rgb *= sdrBrightnessMultiplier;
+    }
+#endif
     pixColor = fromLinearNit(pixColor, dstTF, dstTFRange);
 #if USE_SDR_MOD
-    pixColor = saturate(pixColor, dstxyz, sdrSaturation);
-    pixColor.rgb *= sdrBrightnessMultiplier;
+    if (dstTF != CM_TRANSFER_FUNCTION_EXT_SRGB) {
+        pixColor = saturate(pixColor, dstxyz, sdrSaturation);
+        pixColor.rgb *= sdrBrightnessMultiplier;
+    }
 #endif
 #endif
 

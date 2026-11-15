@@ -11,6 +11,13 @@ using namespace Render;
 using namespace Render::GL;
 using namespace NColorManagement;
 
+// render:hdr_blend_space srgb: the work buffer is extended sRGB at SDR's range (its tfRange), so the blur works in it as
+// in SDR mode, SDR white at 1.0 and HDR above it in the FP16 buffers, not in an intermediate stretched to the monitor's peak
+bool Render::GL::blurInWorkBufferSpace(CRenderContext& ctx) {
+    const auto WORKBUFFER = g_pHyprRenderer->workBufferImageDescription(ctx);
+    return WORKBUFFER && WORKBUFFER->value().tfRange.has_value();
+}
+
 static SCMSettings blurIntermediateCMSettings(CRenderContext& ctx, bool toIntermediate) {
     const auto WORKBUFFER   = g_pHyprRenderer->workBufferImageDescription(ctx);
     const auto INTERMEDIATE = getDefaultImageDescription();
@@ -123,7 +130,7 @@ SP<CGLFramebuffer> CDualKawaseBlurProvider::blurGL(CRenderContext& ctx, SP<CGLFr
 
         WP<CShader> shader;
 
-        const bool  skipCM = !m_impl.m_cmSupported || !g_pHyprRenderer->workBufferImageDescription(ctx)->needsCM(getDefaultImageDescription());
+        const bool  skipCM = !m_impl.m_cmSupported || !g_pHyprRenderer->workBufferImageDescription(ctx)->needsCM(getDefaultImageDescription()) || blurInWorkBufferSpace(ctx);
         if (!skipCM) {
             const auto settings = blurIntermediateCMSettings(ctx, /* toIntermediate */ true);
             shader              = m_impl.useShader(m_impl.getShaderVariant(SH_FRAG_BLURPREPARE, SH_FEAT_CM, settings.sourceTF, settings.targetTF));
@@ -244,7 +251,7 @@ SP<CGLFramebuffer> CDualKawaseBlurProvider::blurGL(CRenderContext& ctx, SP<CGLFr
             m_impl.setActiveTexture(GL_TEXTURE0);
         }
 
-        const bool skipCM = !m_impl.m_cmSupported || !g_pHyprRenderer->workBufferImageDescription(ctx)->needsCM(getDefaultImageDescription());
+        const bool skipCM = !m_impl.m_cmSupported || !g_pHyprRenderer->workBufferImageDescription(ctx)->needsCM(getDefaultImageDescription()) || blurInWorkBufferSpace(ctx);
         if (!skipCM) {
             const auto settings = blurIntermediateCMSettings(ctx, /* toIntermediate */ false);
             shader              = m_impl.useShader(m_impl.getShaderVariant(MATERIAL_REQUIREMENTS.finishFragment, SH_FEAT_CM, settings.sourceTF, settings.targetTF));
