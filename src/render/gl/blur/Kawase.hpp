@@ -26,5 +26,6 @@ namespace Render::GL {
         UP<IGLBlurMaterial> m_material;
     };
 
+    bool  blurInWorkBufferSpace(CRenderContext& ctx);
     float dualKawaseDamageRadius(int64_t size, int64_t passes);
 }
