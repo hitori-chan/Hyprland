@@ -128,7 +128,21 @@ std::optional<CBox> CSurfacePassElement::boundingBox(Render::CRenderContext& ctx
     return getTexBox();
 }
 
+// clipped to a box (an underlay's composited part, a workspace's slide), it covers only the whole logical pixels in it
 CRegion CSurfacePassElement::opaqueRegion(Render::CRenderContext& ctx) {
+    auto region = unclippedOpaqueRegion(ctx);
+    if (region.empty() || m_data.clipBox.empty())
+        return region;
+
+    const auto   CLIP = m_data.clipBox.copy().scale(1.F / ctx.m_data.pMonitor->m_scale);
+    const double L = std::ceil(CLIP.x), T = std::ceil(CLIP.y), R = std::floor(CLIP.x + CLIP.w), B = std::floor(CLIP.y + CLIP.h);
+    if (R <= L || B <= T)
+        return {};
+
+    return region.intersect(L, T, R - L, B - T);
+}
+
+CRegion CSurfacePassElement::unclippedOpaqueRegion(Render::CRenderContext& ctx) {
     auto        PSURFACE = Desktop::View::CWLSurface::fromResource(m_data.surface);
 
     const float ALPHA = m_data.alpha * m_data.fadeAlpha * (PSURFACE ? PSURFACE->m_alphaModifier * PSURFACE->m_overallOpacity : 1.F);

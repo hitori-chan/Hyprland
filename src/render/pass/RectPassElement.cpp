@@ -20,8 +20,12 @@ std::optional<CBox> CRectPassElement::boundingBox(Render::CRenderContext& ctx) {
 CRegion CRectPassElement::opaqueRegion(Render::CRenderContext& ctx) {
     // a hole hides what is under it as an opaque rect does. One logical pixel in, so the rounding to pixels never hides
     // more than the hole replaces, and a rounded one's corners in by their radius, as a rounded surface's
-    if (m_data.punch)
-        return m_data.box.copy().scale(1.F / ctx.m_data.pMonitor->m_scale).expand(-1 - m_data.round / ctx.m_data.pMonitor->m_scale);
+    if (m_data.punch) {
+        CRegion hole = m_data.box.copy().scale(1.F / ctx.m_data.pMonitor->m_scale).expand(-1 - m_data.round / ctx.m_data.pMonitor->m_scale);
+        if (!m_data.punchExcept.empty())
+            hole.subtract(m_data.punchExcept.copy().scale(1.F / ctx.m_data.pMonitor->m_scale).expand(1));
+        return hole;
+    }
 
     if (m_data.color.a < 1.F)
         return CRegion{};

@@ -166,6 +166,7 @@ namespace Monitor {
             bool                                       video         = true; // a fullscreen window's video, not a window's content
             float                                      round         = 0.F;  // the hole's corners, in output pixels, as the surface's
             float                                      roundingPower = 2.F;
+            CRegion                                    composited;                    // in output pixels: the content's part not declared opaque, composited over it
             Aquamarine::COutputState::SBufferPlacement placement;                     // its place on the primary, as last tested
             uint32_t                                   format   = DRM_FORMAT_INVALID; // its buffer's layout, as last tested
             uint64_t                                   modifier = DRM_FORMAT_MOD_INVALID;
@@ -502,6 +503,7 @@ namespace Monitor {
         NColorManagement::PImageDescription                       underlayContentDescription(PHLWINDOW window, SP<CWLSurfaceResource> content);
         std::optional<Aquamarine::COutputState::SBufferPlacement> underlayPlacement(PHLWINDOW window, SP<CWLSurfaceResource> video);
         bool underlayBlockedByCM(PHLWINDOW window, SP<CWLSurfaceResource> video, const Aquamarine::COutputState::SBufferPlacement& placement);
+        CRegion underlayComposited(SP<CWLSurfaceResource> surface, const Aquamarine::COutputState::SBufferPlacement& placement);
         bool ensureUnderlaySwapchain();
 
         // Resources

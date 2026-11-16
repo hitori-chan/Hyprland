@@ -46,8 +46,13 @@ void CGLElementRenderer::draw(CRenderContext& ctx, WP<CPreBlurElement> element, 
     g_pHyprRenderer->preBlurForCurrentMonitor(ctx, dmg);
 };
 
-void CGLElementRenderer::draw(CRenderContext& ctx, WP<CRectPassElement> element, const CRegion& damage) {
+void CGLElementRenderer::draw(CRenderContext& ctx, WP<CRectPassElement> element, const CRegion& damage_) {
     const auto& m_data = element->m_data;
+
+    // a hole leaves its content's composited part as it is
+    CRegion damage = damage_;
+    if (m_data.punch && !m_data.punchExcept.empty())
+        damage.subtract(m_data.punchExcept);
 
     // a rounded hole (a window's content): the shape's coverage takes away what is under it, dst * (1 - coverage), so
     // inside it is (0, 0, 0, 0), outside the corners untouched, and its edge blends with what the plane shows as the

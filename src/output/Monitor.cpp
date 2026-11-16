@@ -2351,6 +2351,26 @@ std::optional<Aquamarine::COutputState::SBufferPlacement> CMonitor::underlayPlac
     return PLACEMENT;
 }
 
+// the surface's part outside its opaque region, in output pixels at its place: each edge through one rounding, so it
+// and the hole's rest tile the place
+CRegion CMonitor::underlayComposited(SP<CWLSurfaceResource> surface, const Aquamarine::COutputState::SBufferPlacement& placement) {
+    const auto SIZE = surface->m_current.size;
+    if (surface->fullyOpaque() || SIZE.x <= 0 || SIZE.y <= 0)
+        return {};
+
+    const auto& DST   = placement.destination;
+    const auto  EDGEX = [&DST, &SIZE](double x) { return std::round(DST.x + x * DST.w / SIZE.x); };
+    const auto  EDGEY = [&DST, &SIZE](double y) { return std::round(DST.y + y * DST.h / SIZE.y); };
+
+    CRegion     out;
+    CRegion{CBox{{}, SIZE}}.subtract(surface->m_current.opaque).forEachRect([&out, &EDGEX, &EDGEY](const auto& r) {
+        const double X0 = EDGEX(r.x1), X1 = EDGEX(r.x2), Y0 = EDGEY(r.y1), Y1 = EDGEY(r.y2);
+        if (X1 > X0 && Y1 > Y0)
+            out.add(CBox{X0, Y0, X1 - X0, Y1 - Y0});
+    });
+    return out;
+}
+
 // the composite is colour-managed by the shader, the video by the DCP alone: it takes a YCbCr
 // layer as SDR, with the primaries its encoding implies and BT.709's transfer function
 bool CMonitor::underlayBlockedByCM(PHLWINDOW window, SP<CWLSurfaceResource> video, const Aquamarine::COutputState::SBufferPlacement& placement) {
@@ -2485,6 +2505,13 @@ bool CMonitor::prepareUnderlay(bool commit) {
     m_underlay.format    = ATTRS.format;
     m_underlay.modifier  = ATTRS.modifier;
     m_underlay.placement = *PLACEMENT;
+
+    // a window's content not declared opaque all over: that part composited over it, the hole the rest
+    const auto COMPOSITED = CANDIDATE->video ? CRegion{} : underlayComposited(PVIDEO, *PLACEMENT);
+    if (!pixman_region32_equal(COMPOSITED.pixman(), m_underlay.composited.pixman())) {
+        m_underlay.composited = COMPOSITED;
+        m_damage.damageEntire();
+    }
 
     // a window's content: the hole's corners as the renderer rounds the surface (ElementRenderer: the window's, less one)
     const float ROUND         = CANDIDATE->video ? 0.F : std::max(PCANDIDATE->presentation().rounding() * sc<float>(m_scale) - 1.F, 0.F);

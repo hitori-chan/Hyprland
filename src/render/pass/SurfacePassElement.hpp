@@ -80,6 +80,8 @@ class CSurfacePassElement : public IPassElement {
     bool contentOpaque() const;
 
   private:
-    bool m_texBoxCached = false;
+    CRegion unclippedOpaqueRegion(Render::CRenderContext& ctx);
+
+    bool    m_texBoxCached = false;
     CBox m_cachedTexBox = {};
 };

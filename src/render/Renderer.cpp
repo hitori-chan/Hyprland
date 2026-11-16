@@ -786,6 +786,11 @@ void IHyprRenderer::renderWindow(CRenderContext& ctx, PHLWINDOW pWindow, PHLMONI
                 if (s->m_current.size.x < 1 || s->m_current.size.y < 1)
                     return;
 
+                renderdata.localPos    = s == pWindow->wlSurface()->resource() ? offset : offset - pWindow->contentOffset();
+                renderdata.texture     = s->m_current.texture;
+                renderdata.surface     = s;
+                renderdata.mainSurface = s == pWindow->wlSurface()->resource();
+
                 // an underlay's video is on the primary plane: a hole in the overlay replaces what is under it, what is over it blends
                 if (ctx.underlay() && ctx.m_underlay.surface == s) {
                     CRectPassElement::SRectData data;
@@ -794,15 +799,19 @@ void IHyprRenderer::renderWindow(CRenderContext& ctx, PHLWINDOW pWindow, PHLMONI
                     data.round         = sc<int>(std::round(ctx.m_underlay.round));
                     data.roundingPower = ctx.m_underlay.roundingPower;
                     data.punch         = true;
+                    data.punchExcept   = ctx.m_underlay.composited;
                     addPassElement(ctx, makeUnique<CRectPassElement>(data));
+
+                    // its part not declared opaque (a client's rounded corners) is drawn as the composite would, over what is under it
+                    ctx.m_underlay.composited.forEachRect([&ctx, &renderdata](const auto& r) {
+                        renderdata.clipBox = CBox{sc<double>(r.x1), sc<double>(r.y1), sc<double>(r.x2 - r.x1), sc<double>(r.y2 - r.y1)};
+                        addPassElement(ctx, makeUnique<CSurfacePassElement>(renderdata));
+                    });
+                    renderdata.clipBox = {};
                     renderdata.surfaceCounter++;
                     return;
                 }
 
-                renderdata.localPos    = s == pWindow->wlSurface()->resource() ? offset : offset - pWindow->contentOffset();
-                renderdata.texture     = s->m_current.texture;
-                renderdata.surface     = s;
-                renderdata.mainSurface = s == pWindow->wlSurface()->resource();
                 addPassElement(ctx, makeUnique<CSurfacePassElement>(renderdata));
                 renderdata.surfaceCounter++;
             },
@@ -1981,7 +1990,8 @@ bool IHyprRenderer::beginRender(PHLMONITOR pMonitor, CRegion& damage, eRenderMod
                                 .surface       = pMonitor->m_underlay.surface,
                                 .hole          = pMonitor->m_underlay.placement.destination,
                                 .round         = pMonitor->m_underlay.round,
-                                .roundingPower = pMonitor->m_underlay.roundingPower};
+                                .roundingPower = pMonitor->m_underlay.roundingPower,
+                                .composited    = pMonitor->m_underlay.composited};
 
     if (!buffer) {
         const auto SWAPCHAIN      = UNDERLAY ? pMonitor->m_underlay.swapchain : pMonitor->m_output->swapchain;
@@ -3176,6 +3186,15 @@ void IHyprRenderer::damageSurface(SP<CWLSurfaceResource> pSurface, double x, dou
         // an underlay's video is on the primary plane, a hole in the frame: its new buffer flips the primary alone
         if (m->m_underlay.entered && m->m_underlay.surface == pSurface) {
             m->m_underlay.videoDamaged = true;
+
+            // but for its part not declared opaque, which the composite draws
+            if (!m->m_underlay.composited.empty()) {
+                auto composited = surfaceDamageToPixels(damageBox, POSITION - m->m_position, m->m_scale);
+                composited.intersect(m->m_underlay.composited);
+                if (!composited.empty())
+                    m->addDamage(composited);
+            }
+
             m->scheduleFrame(Aquamarine::IOutput::AQ_SCHEDULE_NEEDS_FRAME);
             continue;
         }

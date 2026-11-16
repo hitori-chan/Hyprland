@@ -1235,6 +1235,22 @@ SP<CWLSurfaceResource> CWindow::getUnderlayResource() const {
 // a window's content among its layers (Firefox's WebRender over GTK's toplevel, a terminal's one surface): the largest
 // opaque RGB dmabuf in the tree, over half the main surface. With render:underlay 2, a monitor may put it on the primary
 // plane under the rest of the frame
+// opaque but for a small part, which the composite keeps drawing over the plane (CMonitor::underlayComposited): a
+// client's rounded corners, which its opaque region leaves out (Firefox's, floating), or a fractional scale's last
+// column. A thirty-second of the surface at most, so the composite stays small
+static bool opaqueForUnderlay(SP<CWLSurfaceResource> s) {
+    if (s->fullyOpaque())
+        return true;
+
+    const auto SIZE = s->m_current.size;
+    if (SIZE.x <= 0 || SIZE.y <= 0)
+        return false;
+
+    double rest = 0;
+    CRegion{CBox{{}, SIZE}}.subtract(s->m_current.opaque).forEachRect([&rest](const auto& r) { rest += sc<double>(r.x2 - r.x1) * (r.y2 - r.y1); });
+    return rest * 32 <= SIZE.x * SIZE.y;
+}
+
 SP<CWLSurfaceResource> CWindow::getContentUnderlayResource() const {
     static auto PUNDERLAY = CConfigValue<Config::INTEGER>("render:underlay");
 
@@ -1254,7 +1270,7 @@ SP<CWLSurfaceResource> CWindow::getContentUnderlayResource() const {
                 return;
 
             const auto ATTRS = s->m_current.buffer->dmabuf();
-            if (!ATTRS.success || NFormatUtils::isFormatYUV(ATTRS.format) || !s->fullyOpaque())
+            if (!ATTRS.success || NFormatUtils::isFormatYUV(ATTRS.format) || !opaqueForUnderlay(s))
                 return;
 
             content = s;
