@@ -2396,13 +2396,17 @@ void IHyprRenderer::renderMonitor(PHLMONITOR pMonitor, bool commit) {
 
     // needsFrame can be cleared by commits that didnt consume our damage like a
     // commit while a pageflip was in flight, so pending damage must keep the frame alive.
-    if (!pMonitor->m_output->needsFrame && pMonitor->m_forceFullFrames == 0 && !pMonitor->m_damage.hasChanged() && !pMonitor->m_underlay.videoDamaged)
+    // nor may it end an HDR headroom ramp: each of its frames commits, clearing both, and the next must still step it
+    if (!pMonitor->m_output->needsFrame && pMonitor->m_forceFullFrames == 0 && !pMonitor->m_damage.hasChanged() && !pMonitor->m_underlay.videoDamaged &&
+        !pMonitor->hdrHeadroomPending())
         return;
 
     if (!pMonitor->m_commitCoordinator->canBeginFrame()) {
         pMonitor->m_pendingFrame = true;
         return;
     }
+
+    pMonitor->hdrHeadroomFrame();
 
     if (*PDEBUGOVERLAY == 1)
         Debug::overlay()->frameData(pMonitor);
@@ -2483,7 +2487,8 @@ void IHyprRenderer::renderMonitor(PHLMONITOR pMonitor, bool commit) {
         // and the video's feedback at the refresh, as a flip of the same buffer would give them. A cursor moved or
         // changed goes to its plane only with a commit, as direct scanout's does: the same buffer flips then
         const auto PVIDEO = pMonitor->m_underlay.surface.lock();
-        if (PVIDEO && PVIDEO->m_current.buffer && PVIDEO->m_current.buffer.m_buffer == pMonitor->m_output->state->state().buffer && !pMonitor->m_scanoutNeedsCursorUpdate) {
+        if (PVIDEO && PVIDEO->m_current.buffer && PVIDEO->m_current.buffer.m_buffer == pMonitor->m_output->state->state().buffer && !pMonitor->m_scanoutNeedsCursorUpdate &&
+            !pMonitor->hdrHeadroomPending()) {
             pMonitor->m_underlayFrames.skipped++;
             pMonitor->scheduleUnderlayFrameEvents();
             return;
@@ -2766,8 +2771,12 @@ void IHyprRenderer::handleFullscreenSettings(PHLMONITOR pMonitor) {
                 pMonitor->m_previousCTMWindow.reset();
             }
 
-            const auto WANTED  = wantHDR ? createHDRMetadata(pMonitor->m_imageDescription->value(), pMonitor) : NO_HDR_METADATA;
+            auto       WANTED  = wantHDR ? createHDRMetadata(pMonitor->m_imageDescription->value(), pMonitor) : NO_HDR_METADATA;
             const auto CURRENT = pMonitor->m_output->state->state().hdrMetadata;
+
+            // the desktop's MaxCLL follows the HDR content shown (render:cm_hdr_headroom)
+            if (wantHDR && pMonitor->hdrHeadroomApplies())
+                WANTED.hdmi_metadata_type1.max_cll = pMonitor->hdrHeadroomMaxCLL();
 
             // Required in order to clear stale HDR metadata
             const bool INITIAL_SDR          = !pMonitor->m_needsHDRupdate && !wantHDR;
