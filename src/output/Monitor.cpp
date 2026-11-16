@@ -3060,6 +3060,129 @@ float CMonitor::maxCLL() {
     return m_maxLuminance >= 0 ? m_maxLuminance : (m_output->parsedEDID.hdrMetadata.has_value() ? m_output->parsedEDID.hdrMetadata->desiredContentMaxLuminance : 0);
 }
 
+// macOS 27.2's EDR policy: SkyLight sends each change with a ramp of 2 s whatever its size, up or down
+// (HeadroomRampDuration), and CoreBrightness's CBEDR runs it geometrically in headroom; a rise starts at once and
+// cancels a pending drop, a drop waits 15 s (edr_hysteresis), so content that comes and goes holds the headroom
+static constexpr float HDR_HEADROOM_RAMP = 2.F;  // s
+static constexpr float HDR_HEADROOM_HOLD = 15.F; // s
+static constexpr float HDR_HEADROOM_MAX  = 16.F; // the panel's potential (EDRPotentialHeadroom)
+
+bool                   CMonitor::hdrHeadroomApplies() {
+    static auto PHEADROOM = CConfigValue<Config::INTEGER>("render:cm_hdr_headroom");
+    return *PHEADROOM == 2 || (*PHEADROOM == 1 && m_name.starts_with("eDP"));
+}
+
+void CMonitor::hdrHeadroomRequest(const SImageDescription& desc) {
+    const bool HDR = desc.transferFunction == CM_TRANSFER_FUNCTION_ST2084_PQ || desc.transferFunction == CM_TRANSFER_FUNCTION_HLG ||
+        (desc.transferFunction == CM_TRANSFER_FUNCTION_EXT_LINEAR && desc.primariesNamed == CM_PRIMARIES_SRGB);
+    if (!HDR)
+        return;
+
+    // the content's own peak, else its mastering display's, else all the panel has
+    const float PEAK      = desc.maxCLL > 0 ? desc.maxCLL : (desc.masteringLuminances.max > 0 ? desc.masteringLuminances.max : maxLuminance(HDR_MAX_LUMINANCE));
+    m_hdrHeadroom.request = std::max(m_hdrHeadroom.request, PEAK);
+}
+
+// the request is the largest the HDR content shown on the monitor asks for, as macOS takes it over the visible layers:
+// from the surfaces of the windows that render here and of its layers, whether or not a frame redraws them, so content
+// that stays still keeps its headroom and content gone lets it go with the next frame
+void CMonitor::hdrHeadroomFrame() {
+    m_hdrHeadroom.request = 0;
+    if (!hdrHeadroomApplies() || !inHDR()) {
+        m_hdrHeadroom = {};
+        return;
+    }
+
+    const auto ASK = [this](SP<CWLSurfaceResource> s, const Vector2D&, void*) {
+        if (s && s->m_current.texture && s->m_colorManagement.valid() && s->m_colorManagement->hasImageDescription())
+            hdrHeadroomRequest(s->m_colorManagement->imageDescription());
+    };
+
+    const auto SELF = m_self.lock();
+    for (auto const& w : Desktop::windowState()->windows()) {
+        if (!w->mapped() || !g_pHyprRenderer->shouldRenderWindow(w, SELF))
+            continue;
+        if (const auto SURF = w->wlSurface(); SURF && SURF->resource())
+            SURF->resource()->breadthfirst(ASK, nullptr);
+    }
+
+    for (auto const& layer : m_layerSurfaceLayers) {
+        for (auto const& ref : layer) {
+            const auto LS = ref.lock();
+            if (LS && LS->mapped() && LS->wlSurface() && LS->wlSurface()->resource())
+                LS->wlSurface()->resource()->breadthfirst(ASK, nullptr);
+        }
+    }
+
+    hdrHeadroomStep();
+}
+
+bool CMonitor::hdrHeadroomPending() {
+    return hdrHeadroomApplies() && inHDR() && m_hdrHeadroom.current != m_hdrHeadroom.target;
+}
+
+// the headroom's ramp, advanced at the frame's start: a rise, or the same, at once; a drop (the content gone, or asking
+// less) after the hold, a timer waking the frame that starts it. A step damages the monitor, so the frame renders and
+// sends its MaxCLL even with nothing else changed, and frames follow until the ramp ends
+void CMonitor::hdrHeadroomStep() {
+    const auto  NOW     = Time::steadyNow();
+    const float WHITE   = std::max(m_sdrMaxLuminance, 1);
+    const float REQUEST = m_hdrHeadroom.request;
+    const float PANEL   = maxCLL() > 0 ? maxCLL() : maxLuminance(HDR_MAX_LUMINANCE);
+
+    const auto  rampAt = [this](const Time::steady_tp& t) {
+        const float ELAPSED = std::chrono::duration<float>(t - m_hdrHeadroom.start).count();
+        if (m_hdrHeadroom.duration <= 0 || ELAPSED >= m_hdrHeadroom.duration)
+            return m_hdrHeadroom.target;
+        return m_hdrHeadroom.origin * std::pow(m_hdrHeadroom.target / m_hdrHeadroom.origin, std::max(ELAPSED, 0.F) / m_hdrHeadroom.duration);
+    };
+
+    const float WANT   = REQUEST > 0 ? std::clamp(std::min(REQUEST, PANEL) / WHITE, 1.F, HDR_HEADROOM_MAX) : 1.F;
+    float       target = WANT;
+    if (WANT >= m_hdrHeadroom.target)
+        m_hdrHeadroom.lastSeen = NOW;
+    else {
+        const float SINCE = std::chrono::duration<float>(NOW - m_hdrHeadroom.lastSeen).count();
+        if (SINCE < HDR_HEADROOM_HOLD) {
+            target = m_hdrHeadroom.target;
+            if (!m_hdrHeadroomTimer) {
+                m_hdrHeadroomTimer = makeShared<CEventLoopTimer>(
+                    std::nullopt,
+                    [self = m_self](SP<CEventLoopTimer>, void*) {
+                        if (const auto MON = self.lock())
+                            MON->scheduleFrame(Aquamarine::IOutput::AQ_SCHEDULE_ANIMATION);
+                    },
+                    nullptr);
+                g_pEventLoopManager->addTimer(m_hdrHeadroomTimer);
+            }
+            m_hdrHeadroomTimer->updateTimeout(std::chrono::duration_cast<Time::steady_dur>(std::chrono::duration<float>(HDR_HEADROOM_HOLD - SINCE)));
+        }
+    }
+
+    const float NOW_HEADROOM = rampAt(NOW);
+    if (target != m_hdrHeadroom.target) {
+        m_hdrHeadroom.origin   = NOW_HEADROOM;
+        m_hdrHeadroom.target   = target;
+        m_hdrHeadroom.start    = NOW;
+        m_hdrHeadroom.duration = target != NOW_HEADROOM ? HDR_HEADROOM_RAMP : 0.F;
+    }
+
+    // as an animation: every frame of the ramp, its first (still the old value) included, damages the monitor, so each
+    // commits and its flip brings the next; a frame with nothing damaged commits nothing and the ramp would stop
+    const float CURRENT = rampAt(NOW);
+    if (CURRENT != m_hdrHeadroom.current || CURRENT != m_hdrHeadroom.target) {
+        m_hdrHeadroom.current = CURRENT;
+        m_damage.damageEntire();
+    }
+
+    if (m_hdrHeadroom.current != m_hdrHeadroom.target)
+        scheduleFrame(Aquamarine::IOutput::AQ_SCHEDULE_ANIMATION);
+}
+
+uint16_t CMonitor::hdrHeadroomMaxCLL() {
+    return sc<uint16_t>(std::round(std::min(m_hdrHeadroom.current * std::max(m_sdrMaxLuminance, 1), 65535.F)));
+}
+
 bool CMonitor::wantsWideColor() {
     return supportsWideColor() && (wantsHDR() || m_imageDescription->value().primariesNamed == CM_PRIMARIES_BT2020);
 }

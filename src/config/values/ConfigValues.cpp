@@ -693,6 +693,11 @@ std::vector<SP<IValue>> Values::getConfigValues() {
         MS<Int>("render:non_shader_cm_interop", "non_shader_cm interaction with ctm proto (hyprsunset and similar).", 2,
                 {.min = 0, .max = 2, .map = OptionMap{{"disable", 0}, {"enable", 1}, {"auto", 2}}}),
         MS<Int>("render:fp16_sdr_tf", "Internal workbuffer transfer function for fp16 in SDR mode", 0, {.min = 0, .max = 1, .map = OptionMap{{"monitor", 0}, {"linear", 1}}}),
+        MS<Int>("render:cm_hdr_headroom",
+                "In HDR, the metadata's MaxCLL follows the HDR content shown, as macOS's EDR headroom does: SDR white with none, the content's peak while some is drawn, "
+                "reached by a ramp. A panel that lights highlights by MaxCLL (Apple's) then keeps its backlight at the SDR level on an SDR desktop. 0 - off (the "
+                "monitor's max luminance), 1 - internal panels, 2 - every output",
+                1, {.min = 0, .max = 2, .map = OptionMap{{"off", 0}, {"internal", 1}, {"all", 2}}}),
         MS<Int>("render:hdr_blend_space",
                 "Internal fp16 workbuffer encoding in HDR mode. linear - blend in linear light, srgb - blend in extended sRGB with SDR white at 1.0, as SDR mode does", 1,
                 {.min = 0, .max = 1, .map = OptionMap{{"linear", 0}, {"srgb", 1}}, .refresh = Supplementary::REFRESH_WINDOW_STATES | Supplementary::REFRESH_BLUR_FB}),

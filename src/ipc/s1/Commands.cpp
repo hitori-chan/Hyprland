@@ -289,6 +289,7 @@ std::string CCommandFormatter::getMonitorData(PHLMONITOR m, eHyprCtlOutputFormat
     "underlayTo": "{:x}",
     "underlayBlockedBy": {},
     "underlayFrames": {{"rendered": {}, "videoOnly": {}, "skipped": {}}},
+    "hdrHeadroom": {{"now": {:.2f}, "target": {:.2f}, "request": {:.0f}}},
     "disabled": {},
     "currentFormat": "{}",
     "mirrorOf": "{}",
@@ -349,6 +350,9 @@ std::string CCommandFormatter::getMonitorData(PHLMONITOR m, eHyprCtlOutputFormat
             m->m_underlayFrames.rendered,
             m->m_underlayFrames.videoOnly,
             m->m_underlayFrames.skipped,
+            m->m_hdrHeadroom.current,
+            m->m_hdrHeadroom.target,
+            m->m_hdrHeadroom.request,
             tf(!m->m_enabled),
             formatToString(m->m_output->state->state().drmFormat),
             m->m_mirrorOf ? std::format("{}", m->m_mirrorOf->m_id) : "none",
@@ -365,7 +369,8 @@ std::string CCommandFormatter::getMonitorData(PHLMONITOR m, eHyprCtlOutputFormat
             "Monitor {} (ID {}):\n\t{}x{}@{:.5f} at {}x{}\n\tdescription: {}\n\tmake: {}\n\tmodel: {}\n\tphysical size (mm): {}x{}\n\tserial: {}\n\tactive workspace: {} ({})\n\t"
             "special workspace: {} ({})\n\treserved: {} {} {} {}\n\tscale: {}\n\ttransform: {}\n\tfocused: {}\n\t"
             "dpmsStatus: {}\n\tvrr: {}\n\tsolitary: {:x}\n\tsolitaryBlockedBy: {}\n\tactivelyTearing: {}\n\ttearingBlockedBy: {}\n\tdirectScanoutTo: "
-            "{:x}\n\tdirectScanoutBlockedBy: {}\n\tunderlayTo: {:x}\n\tunderlayBlockedBy: {}\n\tunderlayFrames: {} rendered, {} video-only, {} skipped\n\tdisabled: "
+            "{:x}\n\tdirectScanoutBlockedBy: {}\n\tunderlayTo: {:x}\n\tunderlayBlockedBy: {}\n\tunderlayFrames: {} rendered, {} video-only, {} skipped\n\thdrHeadroom: {:.2f} "
+            "(target {:.2f}, request {:.0f} nits)\n\tdisabled: "
             "{}\n\tcurrentFormat: {}\n\tmirrorOf: "
             "{}\n\tavailableModes: {}\n\tcolorManagementPreset: {}\n\tsdrBrightness: {}\n\tsdrSaturation: {}\n\tsdrMinLuminance: {}\n\tsdrMaxLuminance: "
             "{}\n\thardwareCursorsInUse: {}\n\thardwareDetails:\n\t\tbackend: {}\n\t\thdr: {}\n\t\tchroma: {}\n\t\tbt2020: {}\n\t\tvrrCapable: {}\n\n",
@@ -403,6 +408,9 @@ std::string CCommandFormatter::getMonitorData(PHLMONITOR m, eHyprCtlOutputFormat
             m->m_underlayFrames.rendered,
             m->m_underlayFrames.videoOnly,
             m->m_underlayFrames.skipped,
+            m->m_hdrHeadroom.current,
+            m->m_hdrHeadroom.target,
+            m->m_hdrHeadroom.request,
             !m->m_enabled,
             formatToString(m->m_output->state->state().drmFormat),
             m->m_mirrorOf ? std::format("{}", m->m_mirrorOf->m_id) : "none",
