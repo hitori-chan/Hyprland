@@ -2489,14 +2489,16 @@ void IHyprRenderer::renderMonitor(PHLMONITOR pMonitor, bool commit) {
         pMonitor->m_underlay.videoDamaged = false;
 
         // no new buffer (Firefox commits its layers about 118 times a second, its video 30): no commit; the frame events
-        // and the video's feedback at the refresh, as a flip of the same buffer would give them
+        // and the video's feedback at the refresh, as a flip of the same buffer would give them. A cursor moved or
+        // changed goes to its plane only with a commit, as direct scanout's does: the same buffer flips then
         const auto PVIDEO = pMonitor->m_underlay.surface.lock();
-        if (PVIDEO && PVIDEO->m_current.buffer && PVIDEO->m_current.buffer.m_buffer == pMonitor->m_output->state->state().buffer) {
+        if (PVIDEO && PVIDEO->m_current.buffer && PVIDEO->m_current.buffer.m_buffer == pMonitor->m_output->state->state().buffer && !pMonitor->m_scanoutNeedsCursorUpdate) {
             pMonitor->m_underlayFrames.skipped++;
             pMonitor->scheduleUnderlayFrameEvents();
             return;
         }
 
+        pMonitor->m_scanoutNeedsCursorUpdate = false;
         pMonitor->m_underlayFrames.videoOnly++;
         pMonitor->commitUnderlay(std::nullopt);
         return;
