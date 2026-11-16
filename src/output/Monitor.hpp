@@ -184,6 +184,24 @@ namespace Monitor {
             uint64_t skipped   = 0; // a video commit with no new buffer: no flip
         } m_underlayFrames;
 
+        // render:cm_hdr_headroom: in HDR the metadata's MaxCLL follows the HDR content shown: SDR white with none, so a
+        // panel that lights highlights by it (mini-LED) keeps its backlight at the SDR level; the content's peak while
+        // some is drawn, reached by a geometric ramp. In headroom over SDR white (1: none)
+        struct {
+            float           request = 0; // the largest peak the HDR content shown asks for at this frame, nits (0: none)
+            float           origin = 1.F, target = 1.F, current = 1.F;
+            float           duration = 0; // the ramp's, in seconds
+            Time::steady_tp start;
+            Time::steady_tp lastSeen; // the last frame with HDR content
+        } m_hdrHeadroom;
+        SP<CEventLoopTimer> m_hdrHeadroomTimer; // the ramp down's start, after the hold
+        bool                hdrHeadroomApplies();
+        void                hdrHeadroomRequest(const NColorManagement::SImageDescription& desc);
+        void                hdrHeadroomFrame();   // a frame begins: the request from the content shown, the ramp advanced
+        void                hdrHeadroomStep();    // the ramp advanced; damages the monitor on a step, schedules its frames
+        uint16_t            hdrHeadroomMaxCLL();  // the MaxCLL to send: SDR white times the headroom now
+        bool                hdrHeadroomPending(); // a ramp step not yet sent
+
         // for special fade/blur
         PHLANIMVAR<float> m_specialFade;
         PHLANIMVAR<float> m_specialDim;
