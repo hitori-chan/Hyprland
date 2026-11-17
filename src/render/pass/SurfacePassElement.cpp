@@ -84,7 +84,7 @@ CBox CSurfacePassElement::getTexBox() {
 bool CSurfacePassElement::contentOpaque() const {
     if (!m_data.texture)
         return false;
-    if (m_data.texture->m_opaque)
+    if (m_data.texture->m_opaque || m_data.hiddenByOpaque)
         return true;
     // an alpha format (a client's ARGB) is opaque where the client says so, for the buffer it committed
     return m_data.surface && m_data.surface->m_current.texture == m_data.texture && m_data.surface->fullyOpaque();

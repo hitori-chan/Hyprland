@@ -30,6 +30,7 @@ class CSurfacePassElement : public IPassElement {
         float                  alpha = 1.F, fadeAlpha = 1.F;
         bool                   blur                  = false;
         bool                   blockBlurOptimization = false;
+        bool                   hiddenByOpaque        = false; // it and the window's surfaces drawn after it hide all of it
 
         uint8_t                wrapX = WRAP_CLAMP_TO_EDGE;
         uint8_t                wrapY = WRAP_CLAMP_TO_EDGE;
@@ -76,7 +77,7 @@ class CSurfacePassElement : public IPassElement {
     SRenderData m_data;
 
     CBox        getTexBox();
-    // nothing shows through it: its buffer has no alpha, or its opaque region covers it
+    // nothing shows through it: its buffer has no alpha, its opaque region covers it, or the window's surfaces over it do
     bool contentOpaque() const;
 
   private:
