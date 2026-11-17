@@ -91,6 +91,10 @@ bool CSurfacePassElement::contentOpaque() const {
 }
 
 bool CSurfacePassElement::needsLiveBlur(Render::CRenderContext& ctx) {
+    // the draw blurs under a tree's first surface or a popup only: a claim by another cancels occlusion for nothing
+    if (m_data.surfaceCounter != 0 && !m_data.popup)
+        return false;
+
     auto        PSURFACE = Desktop::View::CWLSurface::fromResource(m_data.surface);
 
     const float ALPHA = m_data.alpha * m_data.fadeAlpha * (PSURFACE ? PSURFACE->m_alphaModifier * PSURFACE->m_overallOpacity : 1.F);
@@ -108,6 +112,9 @@ bool CSurfacePassElement::needsLiveBlur(Render::CRenderContext& ctx) {
 }
 
 bool CSurfacePassElement::needsPrecomputeBlur(Render::CRenderContext& ctx) {
+    if (m_data.surfaceCounter != 0 && !m_data.popup)
+        return false;
+
     auto        PSURFACE = Desktop::View::CWLSurface::fromResource(m_data.surface);
 
     const float ALPHA = m_data.alpha * m_data.fadeAlpha * (PSURFACE ? PSURFACE->m_alphaModifier * PSURFACE->m_overallOpacity : 1.F);
