@@ -268,6 +268,7 @@ namespace Desktop::View {
         SP<CWLSurfaceResource>     getScanoutResource() const;         // the solitary resource, else the video one
         SP<CWLSurfaceResource>     getUnderlayResource() const;        // the one YCbCr layer of an opaque tree, with render:underlay
         SP<CWLSurfaceResource>     getContentUnderlayResource() const; // its largest opaque RGB dmabuf layer, with render:underlay 2
+        SP<CWLSurfaceResource>     getWindowedVideoResource() const;   // its one opaque YCbCr layer, with render:underlay 2
         std::optional<Vector2D>    calculateExpression(const Math::SExpressionVec2& expr);
         std::optional<Vector2D>    minSize();
         std::optional<Vector2D>    maxSize();

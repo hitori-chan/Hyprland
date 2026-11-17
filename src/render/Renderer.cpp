@@ -819,7 +819,9 @@ void IHyprRenderer::renderWindow(CRenderContext& ctx, PHLWINDOW pWindow, PHLMONI
             // an underlay's video is on the primary plane: a hole in the overlay replaces what is under it, what is over it blends
             if (ctx.underlay() && ctx.m_underlay.surface == s) {
                 CRectPassElement::SRectData data;
-                data.box           = ctx.m_underlay.hole;
+                // at its window's corners, the window's rounded shape cut to the hole
+                data.box           = ctx.m_underlay.shape.empty() ? ctx.m_underlay.hole : ctx.m_underlay.shape;
+                data.clipBox       = ctx.m_underlay.shape.empty() ? CBox{} : ctx.m_underlay.hole;
                 data.color         = CHyprColor(0, 0, 0, 0);
                 data.round         = sc<int>(std::round(ctx.m_underlay.round));
                 data.roundingPower = ctx.m_underlay.roundingPower;
@@ -2012,7 +2014,8 @@ bool IHyprRenderer::beginRender(PHLMONITOR pMonitor, CRegion& damage, eRenderMod
                                 .surface       = pMonitor->m_underlay.surface,
                                 .hole          = pMonitor->m_underlay.placement.destination,
                                 .round         = pMonitor->m_underlay.round,
-                                .roundingPower = pMonitor->m_underlay.roundingPower};
+                                .roundingPower = pMonitor->m_underlay.roundingPower,
+                                .shape         = pMonitor->m_underlay.shape};
 
     if (!buffer) {
         const auto SWAPCHAIN      = UNDERLAY ? pMonitor->m_underlay.swapchain : pMonitor->m_output->swapchain;
