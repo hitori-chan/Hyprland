@@ -166,6 +166,7 @@ namespace Monitor {
             bool                                       video         = true; // a fullscreen window's video, not a window's content
             float                                      round         = 0.F;  // the hole's corners, in output pixels, as the surface's
             float                                      roundingPower = 2.F;
+            CBox                                       shape;                         // a window's video at its window's corners: the window's box, in output pixels
             Aquamarine::COutputState::SBufferPlacement placement;                     // its place on the primary, as last tested
             uint32_t                                   format   = DRM_FORMAT_INVALID; // its buffer's layout, as last tested
             uint64_t                                   modifier = DRM_FORMAT_MOD_INVALID;
@@ -284,8 +285,9 @@ namespace Monitor {
             UL_BLOCK_FAILED    = (1 << 12),
             UL_BLOCK_CM        = (1 << 13),
             UL_BLOCK_BLUR      = (1 << 14),
+            UL_BLOCK_CLIP      = (1 << 15),
 
-            UL_CHECKS_COUNT = 15,
+            UL_CHECKS_COUNT = 16,
         };
 
         // keep in sync with socket1 output
@@ -517,10 +519,13 @@ namespace Monitor {
         struct SUnderlayCandidate {
             PHLWINDOW              window;
             SP<CWLSurfaceResource> surface; // null: the window has none to take
-            bool                   video = true;
+            bool                   video    = true;
+            bool                   windowed = false; // in a window among others, not fullscreen alone
         };
         std::optional<SUnderlayCandidate>                         underlayCandidate();
         bool                                                      underlayBlurredOver(PHLWINDOW window, const CBox& hole);
+        bool                                                      underlayClipped(PHLWINDOW window, const CBox& hole);
+        CBox                                                      underlayCorners(PHLWINDOW window, const CBox& hole);
         NColorManagement::PImageDescription                       underlayContentDescription(PHLWINDOW window, SP<CWLSurfaceResource> content);
         std::optional<Aquamarine::COutputState::SBufferPlacement> underlayPlacement(PHLWINDOW window, SP<CWLSurfaceResource> video);
         bool underlayBlockedByCM(PHLWINDOW window, SP<CWLSurfaceResource> video, const Aquamarine::COutputState::SBufferPlacement& placement);

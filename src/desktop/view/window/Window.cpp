@@ -1194,24 +1194,13 @@ SP<CWLSurfaceResource> CWindow::getScanoutResource() const {
     return getVideoResource();
 }
 
-// a video among a client's layers (Firefox's WebRender over GTK's toplevel): the one YCbCr dmabuf
-// in the tree, over an opaque main surface nothing hangs out of. With render:underlay, a monitor
-// may put it on the primary plane under the rest of the frame
-SP<CWLSurfaceResource> CWindow::getUnderlayResource() const {
-    static auto PUNDERLAY = CConfigValue<Config::INTEGER>("render:underlay");
-
-    if (!*PUNDERLAY || !m_wlSurface || !m_wlSurface->resource() || m_backend->isX11() || popupTreeSize())
-        return nullptr;
-
-    const auto RES = m_wlSurface->resource();
-    if (!RES->fullyOpaque() || RES->extends() != CBox{{}, RES->m_current.size})
-        return nullptr;
-
+// the one YCbCr dmabuf among a tree's layers (not its root), opaque: none if there are more
+static SP<CWLSurfaceResource> soleVideoLayer(SP<CWLSurfaceResource> root) {
     SP<CWLSurfaceResource> video;
     bool                   many = false;
-    RES->breadthfirst(
-        [&video, &many, &RES](SP<CWLSurfaceResource> s, const Vector2D& offset, void* data) {
-            if (s == RES || !s->m_current.texture || !s->m_current.buffer || !s->m_current.texture->isDMA())
+    root->breadthfirst(
+        [&video, &many, &root](SP<CWLSurfaceResource> s, const Vector2D& offset, void* data) {
+            if (s == root || !s->m_current.texture || !s->m_current.buffer || !s->m_current.texture->isDMA())
                 return;
 
             if (s->m_current.size.x <= 0 || s->m_current.size.y <= 0)
@@ -1230,6 +1219,34 @@ SP<CWLSurfaceResource> CWindow::getUnderlayResource() const {
         return nullptr;
 
     return video;
+}
+
+// a video among a client's layers (Firefox's WebRender over GTK's toplevel): the one YCbCr dmabuf
+// in the tree, over an opaque main surface nothing hangs out of. With render:underlay, a monitor
+// may put it on the primary plane under the rest of the frame
+SP<CWLSurfaceResource> CWindow::getUnderlayResource() const {
+    static auto PUNDERLAY = CConfigValue<Config::INTEGER>("render:underlay");
+
+    if (!*PUNDERLAY || !m_wlSurface || !m_wlSurface->resource() || m_backend->isX11() || popupTreeSize())
+        return nullptr;
+
+    const auto RES = m_wlSurface->resource();
+    if (!RES->fullyOpaque() || RES->extends() != CBox{{}, RES->m_current.size})
+        return nullptr;
+
+    return soleVideoLayer(RES);
+}
+
+// a video among a window's layers (WebRender's native compositor in a window, the page's layers over GTK's toplevel):
+// the one YCbCr dmabuf in the tree. With render:underlay 2, a monitor may put it on the primary plane under the rest of
+// the frame, which covers the screen around it
+SP<CWLSurfaceResource> CWindow::getWindowedVideoResource() const {
+    static auto PUNDERLAY = CConfigValue<Config::INTEGER>("render:underlay");
+
+    if (*PUNDERLAY < 2 || !m_wlSurface || !m_wlSurface->resource() || m_backend->isX11() || popupTreeSize())
+        return nullptr;
+
+    return soleVideoLayer(m_wlSurface->resource());
 }
 
 // a window's content among its layers (Firefox's WebRender over GTK's toplevel, a terminal's one surface): the largest
