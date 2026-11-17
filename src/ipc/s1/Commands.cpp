@@ -186,12 +186,13 @@ std::string CCommandFormatter::getDSBlockedReason(PHLMONITOR m, eHyprCtlOutputFo
 
 const std::array<const char*, Monitor::CMonitor::UL_CHECKS_COUNT> UNDERLAY_REASONS_JSON = {
     "\"UNKNOWN\"",   "\"USER\"",    "\"PLANE\"",     "\"MIRROR\"", "\"RECORD\"", "\"SW\"", "\"SHADER\"", "\"TEARING\"",
-    "\"CANDIDATE\"", "\"SURFACE\"", "\"TRANSFORM\"", "\"FORMAT\"", "\"FAILED\"", "\"CM\"", "\"BLUR\"",
+    "\"CANDIDATE\"", "\"SURFACE\"", "\"TRANSFORM\"", "\"FORMAT\"", "\"FAILED\"", "\"CM\"", "\"BLUR\"",   "\"CLIP\"",
 };
 
 const std::array<const char*, Monitor::CMonitor::UL_CHECKS_COUNT> UNDERLAY_REASONS_TEXT = {
-    "unknown reason",    "user settings",      "no overlay plane",        "monitor mirrors", "screen record/screenshot", "software renders/cursors", "screen shader", "tearing",
-    "missing candidate", "no surface to take", "surface transformations", "buffer layout",   "activation failed",        "color management",         "blur over it",
+    "unknown reason",    "user settings",    "no overlay plane",  "monitor mirrors",       "screen record/screenshot", "software renders/cursors",
+    "screen shader",     "tearing",          "missing candidate", "no surface to take",    "surface transformations",  "buffer layout",
+    "activation failed", "color management", "blur over it",      "clipped by its window",
 };
 
 std::string CCommandFormatter::getUnderlayBlockedReason(PHLMONITOR m, eHyprCtlOutputFormat format) {

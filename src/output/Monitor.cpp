@@ -2247,9 +2247,14 @@ uint16_t CMonitor::isUnderlayBlocked(bool full) {
     if (inHDR() || (PLACEMENT && underlayBlockedByCM(PCANDIDATE, PVIDEO, *PLACEMENT)))
         reasons |= UL_BLOCK_CM;
 
-    // a window's content: what blurs over the hole would blur the hole
-    if (!CANDIDATE->video && PLACEMENT && underlayBlurredOver(PCANDIDATE, PLACEMENT->destination.copy().scale(1.F / m_scale).translate(m_position)))
-        reasons |= UL_BLOCK_BLUR;
+    // in a window: what blurs over the hole would blur the hole, and a video must show inside its window
+    if (CANDIDATE->windowed && PLACEMENT) {
+        const auto HOLE = PLACEMENT->destination.copy().scale(1.F / m_scale).translate(m_position);
+        if (underlayBlurredOver(PCANDIDATE, HOLE))
+            reasons |= UL_BLOCK_BLUR;
+        if (CANDIDATE->video && underlayClipped(PCANDIDATE, HOLE))
+            reasons |= UL_BLOCK_CLIP;
+    }
 
     return reasons;
 }
@@ -2285,7 +2290,38 @@ std::optional<CMonitor::SUnderlayCandidate> CMonitor::underlayCandidate() {
     if (alpha != 1.F)
         return std::nullopt;
 
-    return SUnderlayCandidate{.window = WINDOW, .surface = WINDOW->getContentUnderlayResource(), .video = false};
+    // its video, when it has one among its layers (WebRender's native compositor): the video changes, its page seldom
+    if (const auto VIDEO = WINDOW->getWindowedVideoResource())
+        return SUnderlayCandidate{.window = WINDOW, .surface = VIDEO, .video = true, .windowed = true};
+
+    return SUnderlayCandidate{.window = WINDOW, .surface = WINDOW->getContentUnderlayResource(), .video = false, .windowed = true};
+}
+
+// a video's hole is square: it must lie inside its window's box. Where it reaches the window's rounded corners, the
+// hole takes their shape (underlayCorners)
+bool CMonitor::underlayClipped(PHLWINDOW window, const CBox& hole) {
+    const auto BOX = window->getWindowMainSurfaceBox();
+    // a fraction of a logical pixel from the placement's rounding to output pixels
+    constexpr double SLACK = 0.5;
+    return hole.x < BOX.x - SLACK || hole.y < BOX.y - SLACK || hole.x + hole.w > BOX.x + BOX.w + SLACK || hole.y + hole.h > BOX.y + BOX.h + SLACK;
+}
+
+// a window's video reaching its window's rounded corners: the window's box in output pixels, as the renderer rounds its
+// main surface (ElementRenderer's windowBox), for the hole to take its corners. Empty when the hole is clear of them
+CBox CMonitor::underlayCorners(PHLWINDOW window, const CBox& hole) {
+    const auto R = window->presentation().rounding() * m_scale;
+    if (R <= 0)
+        return {};
+
+    const auto BOX   = window->getWindowMainSurfaceBox().translate(-m_position).scale(m_scale).round();
+    const auto INNER = hole.copy().expand(-0.5);
+    for (const auto& CORNER :
+         {CBox{BOX.x, BOX.y, R, R}, CBox{BOX.x + BOX.w - R, BOX.y, R, R}, CBox{BOX.x, BOX.y + BOX.h - R, R, R}, CBox{BOX.x + BOX.w - R, BOX.y + BOX.h - R, R, R}}) {
+        if (INNER.overlaps(CORNER))
+            return BOX;
+    }
+
+    return {};
 }
 
 // what blurs over a window's content would sample the hole: another window over it (the cached blur samples the
@@ -2485,12 +2521,16 @@ bool CMonitor::prepareUnderlay(bool commit) {
     m_underlay.modifier  = ATTRS.modifier;
     m_underlay.placement = *PLACEMENT;
 
-    // a window's content: the hole's corners as the renderer rounds the surface (ElementRenderer: the window's, less one)
-    const float ROUND         = CANDIDATE->video ? 0.F : std::max(PCANDIDATE->presentation().rounding() * sc<float>(m_scale) - 1.F, 0.F);
-    const float ROUNDINGPOWER = CANDIDATE->video ? 2.F : PCANDIDATE->presentation().roundingPower();
-    if (ROUND != m_underlay.round || ROUNDINGPOWER != m_underlay.roundingPower) {
+    // a window's content: the hole's corners as the renderer rounds the surface (ElementRenderer: the window's, less one).
+    // A window's video reaching its window's corners: the hole is the window's rounded shape, cut to the video
+    const auto  SHAPE         = CANDIDATE->video && CANDIDATE->windowed ? underlayCorners(PCANDIDATE, PLACEMENT->destination) : CBox{};
+    const bool  ROUNDED       = !CANDIDATE->video || !SHAPE.empty();
+    const float ROUND         = ROUNDED ? std::max(PCANDIDATE->presentation().rounding() * sc<float>(m_scale) - 1.F, 0.F) : 0.F;
+    const float ROUNDINGPOWER = ROUNDED ? PCANDIDATE->presentation().roundingPower() : 2.F;
+    if (ROUND != m_underlay.round || ROUNDINGPOWER != m_underlay.roundingPower || SHAPE != m_underlay.shape) {
         m_underlay.round         = ROUND;
         m_underlay.roundingPower = ROUNDINGPOWER;
+        m_underlay.shape         = SHAPE;
         m_damage.damageEntire();
     }
 

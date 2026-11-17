@@ -89,6 +89,7 @@ namespace Render {
             CBox                   hole;                // in output pixels: the video's place on the primary plane
             float                  round         = 0.F; // a window's content: its corners, as the renderer rounds the surface
             float                  roundingPower = 2.F;
+            CBox                   shape; // a window's video at its window's corners: the window's box, whose rounded shape the hole takes
         } m_underlay;
         bool underlay() const;
 
