@@ -778,36 +778,66 @@ void IHyprRenderer::renderWindow(CRenderContext& ctx, PHLWINDOW pWindow, PHLMONI
             renderdata.blur = false;
         }
 
-        renderdata.surfaceCounter = 0;
+        // the window's surfaces in drawing order, and for each whether its opaque region and those of the surfaces drawn
+        // after it hide all it shows: such a surface shows nothing behind the window, so it claims no blur (and with it
+        // no live blur that cancels occlusion). Judged on each surface alone, GTK's toplevel under WebRender's native
+        // compositor claimed one for the shadow it draws around the window, which the crop hides
+        std::vector<std::pair<SP<CWLSurfaceResource>, Vector2D>> surfaces;
         pWindow->wlSurface()->resource()->breadthfirst(
-            [&ctx, &renderdata, &pWindow](SP<CWLSurfaceResource> s, const Vector2D& offset, void* data) {
-                if (!s->m_current.texture)
-                    return;
-
-                if (s->m_current.size.x < 1 || s->m_current.size.y < 1)
-                    return;
-
-                // an underlay's video is on the primary plane: a hole in the overlay replaces what is under it, what is over it blends
-                if (ctx.underlay() && ctx.m_underlay.surface == s) {
-                    CRectPassElement::SRectData data;
-                    data.box           = ctx.m_underlay.hole;
-                    data.color         = CHyprColor(0, 0, 0, 0);
-                    data.round         = sc<int>(std::round(ctx.m_underlay.round));
-                    data.roundingPower = ctx.m_underlay.roundingPower;
-                    data.punch         = true;
-                    addPassElement(ctx, makeUnique<CRectPassElement>(data));
-                    renderdata.surfaceCounter++;
-                    return;
-                }
-
-                renderdata.localPos    = s == pWindow->wlSurface()->resource() ? offset : offset - pWindow->contentOffset();
-                renderdata.texture     = s->m_current.texture;
-                renderdata.surface     = s;
-                renderdata.mainSurface = s == pWindow->wlSurface()->resource();
-                addPassElement(ctx, makeUnique<CSurfacePassElement>(renderdata));
-                renderdata.surfaceCounter++;
+            [&surfaces](SP<CWLSurfaceResource> s, const Vector2D& offset, void* data) {
+                if (s->m_current.texture && s->m_current.size.x >= 1 && s->m_current.size.y >= 1)
+                    surfaces.emplace_back(s, offset);
             },
             nullptr);
+
+        // a cropped main surface (CSD: GTK's toplevel draws its shadow around the window) shows its content frame only
+        const auto        CONTENTOFFSET = pWindow->contentOffset();
+        std::vector<bool> hidden(surfaces.size());
+        CRegion           opaqueAbove;
+        for (size_t i = surfaces.size(); i-- > 0;) {
+            const auto& [s, offset] = surfaces[i];
+            CBox BOX                = {offset, s->m_current.size};
+            if (s == pWindow->wlSurface()->resource() && CONTENTOFFSET != Vector2D{})
+                BOX = BOX.intersection(CBox{CONTENTOFFSET, {renderdata.w, renderdata.h}});
+            const auto PSURFACE = Desktop::View::CWLSurface::fromResource(s);
+            if (PSURFACE && PSURFACE->m_alphaModifier * PSURFACE->m_overallOpacity < 1.F) {
+                hidden[i] = CRegion{BOX}.subtract(opaqueAbove).empty();
+                continue;
+            }
+
+            if (s->m_current.texture->m_opaque)
+                opaqueAbove.add(BOX);
+            else
+                opaqueAbove.add(s->m_current.opaque.copy().intersect(CBox{{}, s->m_current.size}).translate(offset));
+            hidden[i] = CRegion{BOX}.subtract(opaqueAbove).empty();
+        }
+
+        renderdata.surfaceCounter = 0;
+        for (size_t i = 0; i < surfaces.size(); i++) {
+            const auto& [s, offset] = surfaces[i];
+
+            // an underlay's video is on the primary plane: a hole in the overlay replaces what is under it, what is over it blends
+            if (ctx.underlay() && ctx.m_underlay.surface == s) {
+                CRectPassElement::SRectData data;
+                data.box           = ctx.m_underlay.hole;
+                data.color         = CHyprColor(0, 0, 0, 0);
+                data.round         = sc<int>(std::round(ctx.m_underlay.round));
+                data.roundingPower = ctx.m_underlay.roundingPower;
+                data.punch         = true;
+                addPassElement(ctx, makeUnique<CRectPassElement>(data));
+                renderdata.surfaceCounter++;
+                continue;
+            }
+
+            renderdata.localPos       = s == pWindow->wlSurface()->resource() ? offset : offset - pWindow->contentOffset();
+            renderdata.texture        = s->m_current.texture;
+            renderdata.surface        = s;
+            renderdata.mainSurface    = s == pWindow->wlSurface()->resource();
+            renderdata.hiddenByOpaque = hidden[i];
+            addPassElement(ctx, makeUnique<CSurfacePassElement>(renderdata));
+            renderdata.surfaceCounter++;
+        }
+        renderdata.hiddenByOpaque = false;
 
         renderdata.useNearestNeighbor = false;
 
