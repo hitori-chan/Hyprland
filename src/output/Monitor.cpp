@@ -3526,18 +3526,20 @@ bool CMonitor::needsUnmodifiedCopy() {
 bool CMonitor::useFP16() {
     static const auto PFP16 = CConfigValue<Config::INTEGER>("render:use_fp16");
 
-    auto              isSRGB = [this] {
-        if (m_imageDescription->value().transferFunction != CM_TRANSFER_FUNCTION_SRGB && m_imageDescription->value().transferFunction != CM_TRANSFER_FUNCTION_GAMMA22)
-            return false;
+    // Auto: FP16 where an 8-bit buffer loses something: an HDR transfer function (values past SDR white), an ICC profile or a 10-bit output.
+    // A wide-gamut SDR output at 8 bits composites in its own description instead: each surface is converted into it as it is drawn, which
+    // FP16's final pass does anyway, and an opaque pixel is rounded to 8 bits once either way. FP16 doubles the bytes of every composited pass.
+    auto needsFP16 = [this] {
+        const auto& value = m_imageDescription->value();
 
-        if (m_imageDescription->value().primariesNamed != CM_PRIMARIES_SRGB)
-            return false;
+        if (value.icc.present || m_enabled10bit)
+            return true;
 
-        return true;
+        return value.transferFunction == CM_TRANSFER_FUNCTION_ST2084_PQ || value.transferFunction == CM_TRANSFER_FUNCTION_HLG ||
+            value.transferFunction == CM_TRANSFER_FUNCTION_EXT_LINEAR;
     };
 
-    // Auto: use FP16 if the monitor is not sRGB or is 10 bit
-    return g_pHyprRenderer->fp16Supported() && (*PFP16 == 1 || (*PFP16 == 2 && (!isSRGB() || m_enabled10bit)));
+    return g_pHyprRenderer->fp16Supported() && (*PFP16 == 1 || (*PFP16 == 2 && needsFP16()));
 }
 
 PImageDescription CMonitor::workBufferImageDescription() {
