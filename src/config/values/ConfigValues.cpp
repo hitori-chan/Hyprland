@@ -672,6 +672,10 @@ std::vector<SP<IValue>> Values::getConfigValues() {
                 "Puts a fullscreen window's video (1), or also the focused window's opaque content (2), on the primary plane under the rest of the frame, composited on an "
                 "overlay plane.",
                 0, {.min = 0, .max = 2, .map = OptionMap{{"disable", 0}, {"fullscreen", 1}, {"window", 2}}}),
+        MS<Bool>("render:direct_composite",
+                 "Draws a frame straight into the output's buffer, with no work buffer and no copy, when nothing in it reads the frame back (a live or cached blur, a "
+                 "plugin's element) and the copy has nothing to do (no transform, zoom, FP16, final CM, screen shader, mirror or recording).",
+                 false),
         MS<Bool>("render:expand_undersized_textures", "Whether to expand textures that have not yet resized to be larger.", true),
         MS<Bool>("render:xp_mode", "Disable back buffer and bottom layer rendering.", false),
         MS<Int>("render:ctm_animation", "Whether to enable a fade animation for CTM changes.", 2,

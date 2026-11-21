@@ -290,6 +290,7 @@ std::string CCommandFormatter::getMonitorData(PHLMONITOR m, eHyprCtlOutputFormat
     "underlayTo": "{:x}",
     "underlayBlockedBy": {},
     "underlayFrames": {{"rendered": {}, "videoOnly": {}, "skipped": {}}},
+    "compositeFrames": {{"direct": {}, "copied": {}}},
     "hdrHeadroom": {{"now": {:.2f}, "target": {:.2f}, "request": {:.0f}}},
     "disabled": {},
     "currentFormat": "{}",
@@ -351,6 +352,8 @@ std::string CCommandFormatter::getMonitorData(PHLMONITOR m, eHyprCtlOutputFormat
             m->m_underlayFrames.rendered,
             m->m_underlayFrames.videoOnly,
             m->m_underlayFrames.skipped,
+            m->m_compositeFrames.direct,
+            m->m_compositeFrames.copied,
             m->m_hdrHeadroom.current,
             m->m_hdrHeadroom.target,
             m->m_hdrHeadroom.request,
@@ -370,7 +373,8 @@ std::string CCommandFormatter::getMonitorData(PHLMONITOR m, eHyprCtlOutputFormat
             "Monitor {} (ID {}):\n\t{}x{}@{:.5f} at {}x{}\n\tdescription: {}\n\tmake: {}\n\tmodel: {}\n\tphysical size (mm): {}x{}\n\tserial: {}\n\tactive workspace: {} ({})\n\t"
             "special workspace: {} ({})\n\treserved: {} {} {} {}\n\tscale: {}\n\ttransform: {}\n\tfocused: {}\n\t"
             "dpmsStatus: {}\n\tvrr: {}\n\tsolitary: {:x}\n\tsolitaryBlockedBy: {}\n\tactivelyTearing: {}\n\ttearingBlockedBy: {}\n\tdirectScanoutTo: "
-            "{:x}\n\tdirectScanoutBlockedBy: {}\n\tunderlayTo: {:x}\n\tunderlayBlockedBy: {}\n\tunderlayFrames: {} rendered, {} video-only, {} skipped\n\thdrHeadroom: {:.2f} "
+            "{:x}\n\tdirectScanoutBlockedBy: {}\n\tunderlayTo: {:x}\n\tunderlayBlockedBy: {}\n\tunderlayFrames: {} rendered, {} video-only, {} skipped\n\tcompositeFrames: {} "
+            "direct, {} copied\n\thdrHeadroom: {:.2f} "
             "(target {:.2f}, request {:.0f} nits)\n\tdisabled: "
             "{}\n\tcurrentFormat: {}\n\tmirrorOf: "
             "{}\n\tavailableModes: {}\n\tcolorManagementPreset: {}\n\tsdrBrightness: {}\n\tsdrSaturation: {}\n\tsdrMinLuminance: {}\n\tsdrMaxLuminance: "
@@ -409,6 +413,8 @@ std::string CCommandFormatter::getMonitorData(PHLMONITOR m, eHyprCtlOutputFormat
             m->m_underlayFrames.rendered,
             m->m_underlayFrames.videoOnly,
             m->m_underlayFrames.skipped,
+            m->m_compositeFrames.direct,
+            m->m_compositeFrames.copied,
             m->m_hdrHeadroom.current,
             m->m_hdrHeadroom.target,
             m->m_hdrHeadroom.request,

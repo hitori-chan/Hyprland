@@ -20,6 +20,10 @@ void IElementRenderer::drawElement(CRenderContext& ctx, WP<IPassElement> element
     if (!element)
         return;
 
+    // a draw before the pass chose the frame's target goes to the work buffer, cleared first as begin() would have
+    if (const auto GL = g_pHyprRenderer->glBackend(); GL && ctx.m_gl.mainClearPending)
+        GL->clearMainIfPending(ctx);
+
     switch (element->type()) {
         case EK_BORDER: draw(ctx, dynamicPointerCast<CBorderPassElement>(element), damage); break;
         case EK_CLEAR: drawClear(ctx, dynamicPointerCast<CClearPassElement>(element), damage); break;

@@ -97,6 +97,10 @@ namespace Render {
             bool fakeFrame            = false;
             bool offloadedFramebuffer = false;
             bool applyFinalShader     = false;
+            // a monitor frame's work buffer, bound by begin() and not cleared yet: the pass decides whether it draws there or
+            // straight into the output's buffer (CHyprOpenGLImpl::preparePassTarget); anything drawn before clears it first
+            bool mainClearPending = false;
+            bool directOutput     = false; // the frame is drawn into the output's buffer, with no work buffer and no copy
         } m_gl;
 
       private:
