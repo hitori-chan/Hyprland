@@ -832,11 +832,15 @@ bool CHyprOpenGLImpl::begin(CRenderContext& ctx, PHLMONITOR pMonitor, const CReg
         return false;
     g_pHyprRenderer->bindFB(ctx, workBuffer);
     ctx.m_gl.offloadedFramebuffer = true;
-    if (!ctx.m_data.damage.empty())
-        GLFB(ctx.m_data.currentFB)->clearAfterInvalidation();
 
     ctx.m_data.mainFB = ctx.m_data.currentFB;
     ctx.m_data.outFB  = fb ? fb : ctx.m_currentRenderbuffer->getFB();
+
+    // a monitor's frame clears its work buffer once its pass knows it draws there (preparePassTarget): the clear covers
+    // the whole buffer, which on a tiler stores every tile however small the damage
+    ctx.m_gl.mainClearPending = !ctx.m_data.damage.empty();
+    if (ctx.m_gl.fakeFrame || ctx.m_mode != RENDER_MODE_NORMAL || ctx.readOnlyEffects())
+        clearMainIfPending(ctx);
 
     if (ctx.readOnlyEffects()) {
         // Borrowed scratch must not write through an output's MRT attachment.
@@ -863,8 +867,21 @@ void CHyprOpenGLImpl::end(CRenderContext& ctx) {
     ctx.m_data.surface.reset();
     ctx.m_data.clipBox = {};
 
+    if (ctx.m_mode == RENDER_MODE_NORMAL && !ctx.m_gl.fakeFrame) {
+        if (ctx.m_gl.directOutput)
+            PMONITOR->m_compositeFrames.direct++;
+        else if (ctx.m_gl.offloadedFramebuffer)
+            PMONITOR->m_compositeFrames.copied++;
+    }
+
     // end the render, copy the data to the main framebuffer
     if LIKELY (ctx.m_gl.offloadedFramebuffer) {
+        // a pass that never prepared its target (nothing to draw) leaves the work buffer uncleared: the copy shows the clear
+        if (ctx.m_gl.mainClearPending) {
+            g_pHyprRenderer->bindFB(ctx, ctx.m_data.mainFB);
+            clearMainIfPending(ctx);
+        }
+
         ctx.m_data.damage = ctx.m_data.finalDamage;
         if UNLIKELY (ctx.m_mode != RENDER_MODE_NORMAL) {
             const auto TARGET_SIZE = ctx.m_data.outFB->m_size;
@@ -990,6 +1007,11 @@ void CHyprOpenGLImpl::end(CRenderContext& ctx) {
 
         ctx.m_data.useNearestNeighbor = false;
         ctx.m_gl.applyFinalShader     = false;
+    } else if (ctx.m_gl.directOutput) {
+        // drawn into the output's buffer, with no copy: the camera resets as the copy's 1x zoom would have it, and the
+        // buffer drops the description it took for the frame
+        PMONITOR->m_zoomController.m_resetCameraState = true;
+        ctx.m_data.outFB->setImageDescription({});
     }
 
     // Release the targets before finding unused work buffers to invalidate.
@@ -1013,6 +1035,80 @@ void CHyprOpenGLImpl::end(CRenderContext& ctx) {
         if UNLIKELY (ERR == GL_CONTEXT_LOST) /* We don't have infra to recover from this */
             RASSERT(false, "glGetError at Opengl::end() returned GL_CONTEXT_LOST. Cannot continue until proper GPU reset handling is implemented.");
     }
+}
+
+void CHyprOpenGLImpl::clearMainIfPending(CRenderContext& ctx) {
+    // only while the work buffer is the target: a draw into another buffer leaves the clear for later
+    if (!ctx.m_gl.mainClearPending || !ctx.m_data.mainFB || ctx.m_data.currentFB != ctx.m_data.mainFB)
+        return;
+
+    ctx.m_gl.mainClearPending = false;
+    GLFB(ctx.m_data.mainFB)->clearAfterInvalidation();
+}
+
+// whether a monitor's frame may be drawn straight into the output's buffer: end()'s copy does nothing but copy it. Only
+// for the work buffer's job: the clear begin() deferred covers the whole buffer, so a tiler (Apple's GPUs) processes
+// and stores every tile of it each frame however small the damage, and the copy is one more pass over the damage
+bool CHyprOpenGLImpl::canDrawDirect(CRenderContext& ctx) {
+    static auto PDIRECT  = CConfigValue<Config::INTEGER>("render:direct_composite");
+    const auto  PMONITOR = ctx.m_data.pMonitor;
+
+    if (!*PDIRECT || !PMONITOR || ctx.m_mode != RENDER_MODE_NORMAL || ctx.m_gl.fakeFrame || ctx.readOnlyEffects() || !ctx.m_gl.offloadedFramebuffer)
+        return false;
+
+    const auto OUT = ctx.m_data.outFB;
+    if (!OUT || !ctx.m_data.mainFB || !ctx.m_data.mainFB->imageDescription())
+        return false;
+
+    // the copy's own work: the output's transform and the zoom (the pass draws in the work buffer's space), FP16 and
+    // the final CM (the pass draws in the work buffer's description), the screen shader
+    if (PMONITOR->m_transform != WL_OUTPUT_TRANSFORM_NORMAL || OUT->m_size != PMONITOR->m_transformedSize || ctx.m_data.mouseZoomFactor != 1.F)
+        return false;
+
+    if (PMONITOR->useFP16() || PMONITOR->m_imageDescription->value() != ctx.m_data.mainFB->imageDescription()->value())
+        return false;
+
+    if (m_finalScreenShader->program() >= 1 || g_pHyprRenderer->m_crashingInProgress)
+        return false;
+
+    // what reads the work buffer after the pass: a mirror's or a recording's copy, the unmodified copy's attachment
+    return !PMONITOR->isMirror() && !PMONITOR->needsACopyFB() && !PMONITOR->needsUnmodifiedCopy();
+}
+
+void CHyprOpenGLImpl::preparePassTarget(CRenderContext& ctx, bool readsTarget, const CRegion& uncovered) {
+    // nothing deferred: an offscreen render, or the work buffer already drawn into
+    if (!ctx.m_gl.mainClearPending || ctx.m_data.currentFB != ctx.m_data.mainFB)
+        return;
+
+    if (readsTarget || !canDrawDirect(ctx)) {
+        clearMainIfPending(ctx);
+        return;
+    }
+
+    const auto PMONITOR = ctx.m_data.pMonitor;
+    const auto OUT      = ctx.m_data.outFB;
+
+    ctx.m_gl.mainClearPending = false;
+
+    // the shaders convert into the target's description: the output's buffer takes the work buffer's, the monitor's
+    OUT->setImageDescription(ctx.m_data.mainFB->imageDescription());
+    g_pHyprRenderer->bindFB(ctx, OUT);
+    setViewport(0, 0, PMONITOR->m_transformedSize.x, PMONITOR->m_transformedSize.y);
+    ctx.m_data.mainFB             = OUT;
+    ctx.m_gl.offloadedFramebuffer = false;
+    ctx.m_gl.directOutput         = true;
+
+    // the work buffer showed its clear where nothing opaque covers the damage: transparent black. A scissored clear,
+    // drawn, touches only those tiles
+    if (uncovered.empty())
+        return;
+
+    const std::array<GLfloat, 4> CLEAR = {0.F, 0.F, 0.F, 0.F};
+    uncovered.forEachRect([this, &ctx, &CLEAR](const auto& RECT) {
+        scissor(ctx, &RECT, false);
+        glClearBufferfv(GL_COLOR, 0, CLEAR.data());
+    });
+    disableScissor();
 }
 
 static const std::vector<std::string> SHADER_INCLUDES = {
