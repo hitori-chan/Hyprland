@@ -193,6 +193,12 @@ namespace Render::GL {
         void beginSimple(CRenderContext& ctx, PHLMONITOR, const CRegion& damage, SP<IRenderbuffer> rb = nullptr, SP<IFramebuffer> fb = nullptr);
         void end(CRenderContext& ctx);
 
+        // a monitor frame's target, once its pass knows what it draws (render:direct_composite): the output's buffer
+        // itself when nothing reads the frame back, its uncovered damage cleared; else the work buffer, cleared
+        void preparePassTarget(CRenderContext& ctx, bool readsTarget, const CRegion& uncovered);
+        // the work buffer's deferred clear, before anything draws into it
+        void clearMainIfPending(CRenderContext& ctx);
+
         void renderRect(CRenderContext& ctx, const CBox&, const CHyprColor&, SRectRenderData data);
         void renderTexture(CRenderContext& ctx, SP<ITexture>, const CBox&, STextureRenderData data);
         void renderTextureMesh(CRenderContext& ctx, SP<ITexture>, const CBox&, const std::vector<SMeshRenderVertex>& vertices, STextureRenderData data);
@@ -310,6 +316,8 @@ namespace Render::GL {
 
       private:
         CFramebufferBindingGuard* m_bindingGuard = nullptr;
+
+        bool                      canDrawDirect(CRenderContext& ctx);
 
         struct {
             GLint   x      = 0;

@@ -23,6 +23,7 @@ namespace Render {
 
       private:
         CRegion              m_damage;
+        CRegion              m_uncovered; // the damage no opaque element covers (all of it unsimplified)
         std::vector<CRegion> m_occludedRegions;
         CRegion              m_totalLiveBlurRegion;
 
@@ -36,6 +37,7 @@ namespace Render {
 
         void                          simplify(CRenderContext& ctx, bool willBlur, const CRegion& liveBlurRegion);
         void                          planBackdropScopes(CRenderContext& ctx);
+        bool                          readsTarget() const;
         void                          renderDebugData(CRenderContext& ctx);
 
         struct {

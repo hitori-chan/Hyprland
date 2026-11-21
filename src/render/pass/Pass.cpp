@@ -98,6 +98,8 @@ void CRenderPass::simplify(CRenderContext& ctx, bool willBlur, const CRegion& li
         }
     }
 
+    m_uncovered = newDamage;
+
     if (*PDEBUGPASS) {
         for (auto& el2 : m_passElements) {
             if (!el2.element->needsLiveBlurCached)
@@ -111,9 +113,29 @@ void CRenderPass::simplify(CRenderContext& ctx, bool willBlur, const CRegion& li
     }
 }
 
+// whether an element drawn reads the frame under it, or needs what only the work buffer has: a live blur and its backdrop,
+// the pre-blur, a cached blur (its draw marks the window's shape in the stencil, which the output's buffer lacks), a
+// transformed window, and a plugin's element, whose draw is not known
+bool CRenderPass::readsTarget() const {
+    return std::ranges::any_of(m_passElements, [](const auto& el) {
+        if (el.discard)
+            return false;
+
+        switch (el.element->type()) {
+            case EK_PRE_BLUR:
+            case EK_TRANSFORMED_WINDOW:
+            case EK_CUSTOM:
+            case EK_UNKNOWN: return true;
+            case EK_BACKDROP_SCOPE: return sc<CBackdropScopePassElement*>(el.element.get())->scope()->required;
+            default: return el.element->needsLiveBlurCached || el.element->needsPrecomputeBlurCached;
+        }
+    });
+}
+
 void CRenderPass::clear() {
     m_passElements.clear();
     m_damage.clear();
+    m_uncovered.clear();
     m_occludedRegions.clear();
     m_totalLiveBlurRegion.clear();
 }
@@ -226,6 +248,7 @@ CRegion CRenderPass::render(CRenderContext& ctx, const CRegion& damage_) {
         for (auto& el : m_passElements) {
             el.elementDamage = m_damage;
         }
+        m_uncovered = m_damage;
     } else
         simplify(ctx, willBlur, liveBlurRegion);
 
@@ -235,6 +258,10 @@ CRegion CRenderPass::render(CRenderContext& ctx, const CRegion& damage_) {
         ctx.sceneResources()->setBlurQueued(willPrecomputeBlur);
     else if (ctx.m_data.pMonitor)
         ctx.m_data.pMonitor->m_blurFBShouldRender = willPrecomputeBlur;
+
+    // a monitor's frame: its target, now that the pass knows what it draws (the work buffer, or the output's buffer)
+    if (const auto GL = g_pHyprRenderer->glBackend(); GL && this == &ctx.m_pass)
+        GL->preparePassTarget(ctx, readsTarget(), m_uncovered);
 
     if (m_passElements.empty())
         return {};

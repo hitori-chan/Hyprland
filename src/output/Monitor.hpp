@@ -185,6 +185,13 @@ namespace Monitor {
             uint64_t skipped   = 0; // a video commit with no new buffer: no flip
         } m_underlayFrames;
 
+        // composited frames since the start: drawn straight into the output's buffer (render:direct_composite), or into
+        // the work buffer and copied
+        struct {
+            uint64_t direct = 0;
+            uint64_t copied = 0;
+        } m_compositeFrames;
+
         // render:cm_hdr_headroom: in HDR the metadata's MaxCLL follows the HDR content shown: SDR white with none, so a
         // panel that lights highlights by it (mini-LED) keeps its backlight at the SDR level; the content's peak while
         // some is drawn, reached by a geometric ramp. In headroom over SDR white (1: none)
