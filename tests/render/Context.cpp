@@ -464,7 +464,7 @@ namespace Render {
             context.m_renderingSnapshot    = true;
             context.m_renderingCapture     = true;
             context.m_swapchainAcquired    = true;
-            context.m_gl                   = {.fakeFrame = true, .offloadedFramebuffer = true, .applyFinalShader = true};
+            context.m_gl                   = {.fakeFrame = true, .offloadedFramebuffer = true, .applyFinalShader = true, .mainClearPending = true, .directOutput = true};
 
             context.reset();
             ASSERT_TRUE(context.begin());
@@ -494,6 +494,8 @@ namespace Render {
             EXPECT_FALSE(context.m_gl.fakeFrame);
             EXPECT_FALSE(context.m_gl.offloadedFramebuffer);
             EXPECT_FALSE(context.m_gl.applyFinalShader);
+            EXPECT_FALSE(context.m_gl.mainClearPending);
+            EXPECT_FALSE(context.m_gl.directOutput);
             EXPECT_EQ(context.m_cmSettingsCache.capacity(), cmCapacity);
             EXPECT_EQ(context.m_backdropCaptures.capacity(), backdropCapacity);
             EXPECT_EQ(context.m_data.renderModif.modifs.capacity(), modifCapacity);
