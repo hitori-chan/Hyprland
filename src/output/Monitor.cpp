@@ -2679,6 +2679,17 @@ bool CMonitor::needsACopyFB() {
     return !m_mirrors.empty() || Screenshare::mgr()->outputNeedsCopyFB(m_self.lock());
 }
 
+// the output's buffer is the last composited frame, in the monitor's format: the primary shows it, and a commit of it
+// changes nothing on the screen (CMonitorState::ensureBufferPresent() keeps it)
+bool CMonitor::showsCompositedFrame() {
+    const auto FRONT = m_output->state->state().buffer;
+    if (!FRONT || FRONT != m_compositedBuffer.lock())
+        return false;
+
+    const auto ATTRS = FRONT->dmabuf();
+    return ATTRS.success && ATTRS.format == m_drmFormat;
+}
+
 bool CMonitor::needsUnmodifiedCopy() {
     static const auto PKEEP = CConfigValue<Config::INTEGER>("render:keep_unmodified_copy");
     if (*PKEEP == 1)

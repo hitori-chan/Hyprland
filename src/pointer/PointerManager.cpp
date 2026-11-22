@@ -784,6 +784,11 @@ void CPointerManager::renderSoftwareCursorsFor(Render::CRenderContext& ctx, PHLM
         m_currentCursorImage.surface->resource()->frame(now);
 }
 
+void CPointerManager::sendCursorFrame(const Time::steady_tp& now) {
+    if (m_currentCursorImage.surface)
+        m_currentCursorImage.surface->resource()->frame(now);
+}
+
 Vector2D CPointerManager::getCursorPosForMonitor(PHLMONITOR pMonitor) {
     return CBox{m_pointerPos - pMonitor->m_position, {0, 0}}
                .transform(Math::wlTransformToHyprutils(Math::invertTransform(pMonitor->m_transform)), pMonitor->m_transformedSize.x / pMonitor->m_scale,

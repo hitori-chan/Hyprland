@@ -277,6 +277,7 @@ namespace Render {
         SP<ITexture>         m_lockTtyTextTexture;
 
         void                 handleFullscreenSettings(PHLMONITOR pMonitor);
+        void                 commitKeptFrame(PHLMONITOR pMonitor, const Time::steady_tp& now);
 
         // old private:
         void arrangeLayerArray(PHLMONITOR, const std::vector<PHLLSREF>&, bool, CBox*);

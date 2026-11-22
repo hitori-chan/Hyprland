@@ -141,6 +141,9 @@ namespace Monitor {
         UP<COutputCommitCoordinator>   m_commitCoordinator;
         UP<CMonitorWindowTransaction>  m_windowTransaction;
 
+        // the last composited frame's buffer, once committed: while it is still the output's buffer, the primary shows it
+        WP<Aquamarine::IBuffer> m_compositedBuffer;
+
         // mirroring
         PHLMONITORREF              m_mirrorOf;
         std::vector<PHLMONITORREF> m_mirrors;
@@ -383,6 +386,7 @@ namespace Monitor {
         }
 
         bool                                needsACopyFB();
+        bool                                showsCompositedFrame();
         bool                                needsUnmodifiedCopy();
         bool                                useFP16();
         NColorManagement::PImageDescription workBufferImageDescription();

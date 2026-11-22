@@ -56,6 +56,7 @@
 #include "pass/BackdropScopePassElement.hpp"
 #include "scene/MonitorScene.hpp"
 #include "scene/SceneSelection.hpp"
+#include "KeptFrame.hpp"
 #include "SceneResources.hpp"
 #include "../debug/log/Logger.hpp"
 #include "../protocols/ColorManagement.hpp"
@@ -2403,6 +2404,30 @@ void IHyprRenderer::renderMonitor(PHLMONITOR pMonitor, bool commit) {
 
     CRegion                                           damage, finalDamage;
     std::optional<Monitor::CDamageRing::CTransaction> damageTransaction;
+
+    // nothing new to draw: a hardware cursor that moved or changed, a client's frame callback. The buffer shown is that
+    // frame already, so it goes out again, with no render and no new buffer
+    const bool FULL_FRAME = *PDAMAGETRACKINGMODE == DAMAGE_TRACKING_NONE || *PDAMAGETRACKINGMODE == DAMAGE_TRACKING_MONITOR || pMonitor->m_forceFullFrames > 0 ||
+        damageBlinkCleanup > 0 || *PDAMAGEBLINK || ZOOM_DAMAGE_ENTIRE;
+    if (frameKeepsBuffer({
+            .commits         = commit,
+            .damaged         = pMonitor->m_damage.hasChanged(),
+            .fullFrame       = FULL_FRAME,
+            .frontComposited = pMonitor->showsCompositedFrame(),
+            .copied          = pMonitor->needsACopyFB(),
+            .mirror          = pMonitor->isMirror(),
+            .solitaryRedraw  = pMonitor->m_solitaryClient && *PSOLDAMAGE,
+            .tearing         = shouldTear,
+        })) {
+        commitKeptFrame(pMonitor, NOW);
+
+        if (*PVFR == 0 || pMonitor->m_pendingFrame)
+            pMonitor->scheduleFrame(Aquamarine::IOutput::AQ_SCHEDULE_RENDER_MONITOR);
+
+        pMonitor->m_pendingFrame = false;
+        return;
+    }
+
     if (!beginRender(pMonitor, damage, RENDER_MODE_NORMAL, {}, nullptr, false, renderOptions, &damageTransaction)) {
         LOG(Log::ERR, "renderer: couldn't beginRender()!");
         return;
@@ -2782,6 +2807,33 @@ bool IHyprRenderer::commitPendingAndDoExplicitSync(PHLMONITOR pMonitor, std::opt
         LOG(Log::TRACE, "Monitor state commit failed");
 
     return ok;
+}
+
+void IHyprRenderer::commitKeptFrame(PHLMONITOR pMonitor, const Time::steady_tp& now) {
+    // the clients' frames and the cursor surface's, as an empty render sends them
+    if (pMonitor->m_activeWorkspace)
+        sendFrameEventsToWorkspace(pMonitor, pMonitor->m_activeWorkspace, now);
+    if (pMonitor->m_activeSpecialWorkspace)
+        sendFrameEventsToWorkspace(pMonitor, pMonitor->m_activeSpecialWorkspace, now);
+    if (shouldRenderCursor())
+        Pointer::mgr()->sendCursorFrame(now);
+
+    // the buffer shown, flipped again: the commit carries the cursor's plane and the rest of the output's state, and its
+    // flip paces the next frame as a rendered one's does. A buffer on the screen was read: no fence
+    const auto FRONT = pMonitor->m_output->state->state().buffer;
+    pMonitor->m_output->state->setBuffer(FRONT);
+    pMonitor->m_output->state->resetExplicitFences();
+
+    handleFullscreenSettings(pMonitor);
+
+    Monitor::COutputCommitCoordinator::SFrame frame{
+        .kind = Monitor::COutputCommitCoordinator::FRAME_COMPOSED,
+        .vrr  = pMonitor->m_vrrActive,
+    };
+
+    // a failure damages the whole monitor: the next frame renders
+    if (pMonitor->m_commitCoordinator->submit(std::move(frame)) == Monitor::COutputCommitCoordinator::SUBMIT_FAILED)
+        LOG(Log::TRACE, "renderer: committing a kept frame failed");
 }
 
 void IHyprRenderer::renderWorkspace(CRenderContext& ctx, PHLMONITOR pMonitor, PHLWORKSPACE pWorkspace, const Time::steady_tp& now, const CBox& geometry) {

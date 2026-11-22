@@ -173,6 +173,7 @@ void COutputCommitCoordinator::submitted(SFrame& frame, bool async) {
         frame.damage->commit();
 
     if (frame.kind == FRAME_COMPOSED) {
+        m_monitor->m_compositedBuffer = m_monitor->m_output->state->state().buffer;
         if (!frame.copyFBPrepared)
             m_monitor->resources()->markMirrorFBStale(frame.renderedDamage);
         if (!m_monitor->m_mirrors.empty())
