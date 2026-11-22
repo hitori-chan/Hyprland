@@ -91,6 +91,13 @@ SP<CSubsurface> CSubsurface::fromView(SP<IView> v) {
     return dynamicPointerCast<CSubsurface>(v);
 }
 
+PHLWINDOW CSubsurface::windowOwner() const {
+    if (const auto POPUP = m_popupParent.lock(); POPUP)
+        return POPUP->windowOwner();
+
+    return m_windowParent.lock();
+}
+
 CSubsurface::CSubsurface() : IView(CWLSurface::create()) {
     ;
 }

@@ -82,6 +82,7 @@ class CWLSurfaceResource {
     void                          sendPreferredTransform(wl_output_transform t);
     void                          sendPreferredScale(int32_t scale);
     void                          frame(const Time::steady_tp& now);
+    void                          sendFrameCallbacks(const Time::steady_tp& now);
     uint32_t                      id();
     void                          map();
     void                          unmap();

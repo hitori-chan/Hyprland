@@ -51,6 +51,7 @@ namespace Desktop::View {
 
     class CGroup;
     class CWindowEffectsController;
+    class CWindowFrameThrottle;
     class CWindowFullscreenPolicy;
     class CWindowGroupMembership;
     class CWindowMetadata;
@@ -134,6 +135,9 @@ namespace Desktop::View {
         static PHLWINDOW create(UP<IWindowBackend> backend);
         static PHLWINDOW fromView(SP<IView>);
 
+        // the window a view is part of: the window, or the one its subsurface or popup belongs to
+        static PHLWINDOW ownerOf(SP<IView>);
+
       private:
         CWindow(UP<IWindowBackend> backend);
 
@@ -154,6 +158,7 @@ namespace Desktop::View {
         CWindowGroupMembership&                                   grouping();
         const CWindowGroupMembership&                             grouping() const;
         CWindowStateEventTracker&                                 stateTracker();
+        CWindowFrameThrottle&                                     frameThrottle();
 
         virtual eViewType                                         type() const override;
         virtual bool                                              mapped() const override;
@@ -344,6 +349,7 @@ namespace Desktop::View {
         UP<CWindowPresentation>      m_presentation;
         UP<CWindowEffectsController> m_effects;
         UP<CWindowStateEventTracker> m_stateTracker;
+        UP<CWindowFrameThrottle>     m_frameThrottle;
         SP<Layout::CWindowTarget>    m_target;
         struct {
             CHyprSignalListener map;
