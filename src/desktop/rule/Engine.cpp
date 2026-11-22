@@ -2,6 +2,7 @@
 #include "Rule.hpp"
 #include "../view/LayerSurface.hpp"
 #include "../../Compositor.hpp"
+#include "../../helpers/PowerSource.hpp"
 
 using namespace Desktop;
 using namespace Desktop::Rule;
@@ -53,4 +54,19 @@ void CRuleEngine::clearAllRules() {
 
 const std::vector<SP<IRule>>& CRuleEngine::rules() {
     return m_rules;
+}
+
+bool CRuleEngine::onBattery() {
+    if (!m_powerSourceChanged) {
+        m_powerSourceChanged = Power::watcher()->m_events.changed.listen([] {
+            for (const auto& w : Desktop::windowState()->windows()) {
+                if (!validMapped(w) || w->isHidden())
+                    continue;
+
+                w->m_ruleApplicator->propertiesChanged(RULE_PROP_ON_BATTERY);
+            }
+        });
+    }
+
+    return Power::watcher()->onBattery();
 }
