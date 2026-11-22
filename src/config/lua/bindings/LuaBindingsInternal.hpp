@@ -106,6 +106,7 @@ namespace Config::Lua::Bindings::Internal {
         {"stay_focused", []() -> ILuaConfigValue* { return new CLuaConfigBool(false); }, WE::WINDOW_RULE_EFFECT_STAY_FOCUSED},
         {"confine_pointer", []() -> ILuaConfigValue* { return new CLuaConfigBool(false); }, WE::WINDOW_RULE_EFFECT_CONFINE_POINTER},
         {"no_xdg_drags", []() -> ILuaConfigValue* { return new CLuaConfigBool(false); }, WE::WINDOW_RULE_EFFECT_NO_XDG_DRAGS},
+        {"max_fps", []() -> ILuaConfigValue* { return new CLuaConfigInt(0, 0); }, WE::WINDOW_RULE_EFFECT_MAX_FPS},
         {"tonemap", []() -> ILuaConfigValue* { return new CLuaConfigString(STRVAL_EMPTY); }, WE::WINDOW_RULE_EFFECT_TONEMAP},
     };
 

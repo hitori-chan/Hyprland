@@ -1,4 +1,5 @@
 #include "WindowRule.hpp"
+#include "../Engine.hpp"
 #include "../../view/window/Window.hpp"
 #include "../../view/window/WindowGroupMembership.hpp"
 #include "../../../output/Monitor.hpp"
@@ -314,7 +315,8 @@ static std::expected<WindowRuleEffectValue, std::string> parseWindowRuleEffect(C
             return *parsed;
         }
 
-        case WINDOW_RULE_EFFECT_ROUNDING: {
+        case WINDOW_RULE_EFFECT_ROUNDING:
+        case WINDOW_RULE_EFFECT_MAX_FPS: {
             auto parsed = parseInt(EFFECT_NAME, raw);
             if (!parsed)
                 return std::unexpected(parsed.error());
@@ -465,6 +467,10 @@ bool CWindowRule::matches(PHLWINDOW w, bool allowEnvLookup) {
                 break;
             case RULE_PROP_XDG_TAG:
                 if (const auto TAG = w->backend().metadata().tag; !TAG.has_value() || !engine->match(*TAG))
+                    return false;
+                break;
+            case RULE_PROP_ON_BATTERY:
+                if (!engine->match(ruleEngine()->onBattery()))
                     return false;
                 break;
 
