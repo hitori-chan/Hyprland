@@ -43,6 +43,7 @@ namespace Desktop::View {
         Vector2D                       renderScale() const;
         size_t                         allChildrenCount() const;
         size_t                         allMappedChildrenCount() const;
+        PHLWINDOW                      windowOwner() const;
 
         Vector2D                       size();
 

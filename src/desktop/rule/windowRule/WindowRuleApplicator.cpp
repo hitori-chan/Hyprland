@@ -73,6 +73,7 @@ std::unordered_set<CWindowRuleEffectContainer::storageType> CWindowRuleApplicato
                                std::pair{std::ref(m_idleInhibitMode), [this] { return idleInhibitModeEffect(); }},
                                std::pair{std::ref(m_confinePointer), [this] { return confinePointerEffect(); }},
                                std::pair{std::ref(m_noXdgDrags), [this] { return noXdgDragsEffect(); }},
+                               std::pair{std::ref(m_maxFps), [this] { return maxFpsEffect(); }},
                                std::pair{std::ref(m_borderSize), [this] { return borderSizeEffect(); }},
                                std::pair{std::ref(m_rounding), [this] { return roundingEffect(); }},
                                std::pair{std::ref(m_roundingPower), [this] { return roundingPowerEffect(); }},
@@ -415,6 +416,11 @@ CWindowRuleApplicator::SRuleResult CWindowRuleApplicator::applyDynamicRule(const
             case WINDOW_RULE_EFFECT_NO_XDG_DRAGS: {
                 m_noXdgDrags.first.set(truthy(effect), Types::PRIORITY_WINDOW_RULE);
                 m_noXdgDrags.second |= rule->getPropertiesMask();
+                break;
+            }
+            case WINDOW_RULE_EFFECT_MAX_FPS: {
+                m_maxFps.first.set(std::get<int64_t>(value), Types::PRIORITY_WINDOW_RULE);
+                m_maxFps.second |= rule->getPropertiesMask();
                 break;
             }
             case WINDOW_RULE_EFFECT_SCROLL_MOUSE: {

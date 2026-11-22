@@ -13,6 +13,8 @@
 #include "../DRMSyncobj.hpp"
 #include "../types/DMABuffer.hpp"
 #include "../../render/Renderer.hpp"
+#include "../../desktop/view/window/Window.hpp"
+#include "../../desktop/view/window/WindowFrameThrottle.hpp"
 #include "config/ConfigValue.hpp"
 #include "../../managers/eventLoop/EventLoopManager.hpp"
 #include "../../state/MonitorState.hpp"
@@ -411,6 +413,21 @@ void CWLSurfaceResource::sendPreferredScale(int32_t scale) {
 }
 
 void CWLSurfaceResource::frame(const Time::steady_tp& now) {
+    if (m_current.callbacks.empty())
+        return;
+
+    // a window's max_fps sends its surfaces' callbacks together, on the refreshes it allows
+    const auto WINDOW = m_hlSurface ? Desktop::View::CWindow::ownerOf(m_hlSurface->view()) : nullptr;
+    if (WINDOW && WINDOW->frameThrottle().limits()) {
+        if (WINDOW->frameThrottle().frame(now))
+            sendFrameCallbacks(now);
+        return;
+    }
+
+    sendFrameCallbacks(now);
+}
+
+void CWLSurfaceResource::sendFrameCallbacks(const Time::steady_tp& now) {
     if (m_current.callbacks.empty())
         return;
 

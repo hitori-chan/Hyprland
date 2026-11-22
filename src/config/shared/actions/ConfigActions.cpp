@@ -928,6 +928,8 @@ ActionResult Actions::setProp(const std::string& PROP, const std::string& VAL, s
             parsePropTrivial(PWINDOW->m_ruleApplicator->xray(), VAL);
         else if (PROP == "render_unfocused")
             parsePropTrivial(PWINDOW->m_ruleApplicator->renderUnfocused(), VAL);
+        else if (PROP == "max_fps")
+            parsePropTrivial(PWINDOW->m_ruleApplicator->maxFps(), VAL);
         else if (PROP == "no_follow_mouse")
             parsePropTrivial(PWINDOW->m_ruleApplicator->noFollowMouse(), VAL);
         else if (PROP == "no_screen_share")

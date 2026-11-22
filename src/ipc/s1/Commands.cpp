@@ -1752,6 +1752,8 @@ static std::string dispatchGetProp(eHyprCtlOutputFormat format, std::string requ
         return windowPropToString(PWINDOW->m_ruleApplicator->xray());
     else if (PROP == "render_unfocused")
         return windowPropToString(PWINDOW->m_ruleApplicator->renderUnfocused());
+    else if (PROP == "max_fps")
+        return windowPropToString(PWINDOW->m_ruleApplicator->maxFps());
     else if (PROP == "no_follow_mouse")
         return windowPropToString(PWINDOW->m_ruleApplicator->noFollowMouse());
     else if (PROP == "no_screen_share")

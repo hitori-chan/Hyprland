@@ -17,6 +17,7 @@
 #include <string_view>
 #include "Window.hpp"
 #include "WindowEffectsController.hpp"
+#include "WindowFrameThrottle.hpp"
 #include "WindowFullscreenPolicy.hpp"
 #include "WindowGroupMembership.hpp"
 #include "WindowMetadata.hpp"
@@ -161,7 +162,8 @@ void CWindow::attachBackendListeners() {
 CWindow::CWindow(UP<IWindowBackend> backend) :
     IView(CWLSurface::create()), m_grouping(makeUnique<CWindowGroupMembership>(*this)), m_swallowing(makeUnique<CWindowSwallowController>(*this)),
     m_fullscreenPolicy(makeUnique<CWindowFullscreenPolicy>()), m_backend(std::move(backend)), m_metadata(makeUnique<CWindowMetadata>()),
-    m_presentation(makeUnique<CWindowPresentation>(*this)), m_effects(makeUnique<CWindowEffectsController>(*this)), m_stateTracker(makeUnique<CWindowStateEventTracker>(*this)) {
+    m_presentation(makeUnique<CWindowPresentation>(*this)), m_effects(makeUnique<CWindowEffectsController>(*this)), m_stateTracker(makeUnique<CWindowStateEventTracker>(*this)),
+    m_frameThrottle(makeUnique<CWindowFrameThrottle>(*this)) {
     ;
 }
 
@@ -169,6 +171,16 @@ SP<CWindow> CWindow::fromView(SP<IView> v) {
     if (!v || v->type() != VIEW_TYPE_WINDOW)
         return nullptr;
     return dynamicPointerCast<CWindow>(v);
+}
+
+SP<CWindow> CWindow::ownerOf(SP<IView> v) {
+    if (const auto POPUP = CPopup::fromView(v); POPUP)
+        return POPUP->windowOwner();
+
+    if (const auto SUBSURFACE = CSubsurface::fromView(v); SUBSURFACE)
+        return SUBSURFACE->windowOwner();
+
+    return fromView(v);
 }
 
 CWindow::~CWindow() {
@@ -2241,6 +2253,10 @@ const CWindowGroupMembership& CWindow::grouping() const {
 
 CWindowStateEventTracker& CWindow::stateTracker() {
     return *m_stateTracker;
+}
+
+CWindowFrameThrottle& CWindow::frameThrottle() {
+    return *m_frameThrottle;
 }
 
 void CWindow::sendClose() {
