@@ -177,13 +177,16 @@ void COutputCommitCoordinator::submitted(SFrame& frame, bool async) {
     if (frame.damage)
         frame.damage->commit();
 
+    // the resources as they are: a scanout or underlay commit runs outside the renderer's GL context, and a new work
+    // format (the underlay's alpha) would allocate there; new resources have no mirror to mark stale anyway
+    const auto RESOURCES = m_monitor->currentResources();
     if (frame.kind == FRAME_COMPOSED) {
-        if (!frame.copyFBPrepared)
-            m_monitor->resources()->markMirrorFBStale(frame.renderedDamage);
+        if (!frame.copyFBPrepared && RESOURCES)
+            RESOURCES->markMirrorFBStale(frame.renderedDamage);
         if (!m_monitor->m_mirrors.empty())
             g_pHyprRenderer->damageMirrorsWith(m_monitor->m_self.lock(), frame.renderedDamage);
-    } else if (!frame.copyFBPrepared)
-        m_monitor->resources()->markMirrorFBStale();
+    } else if (!frame.copyFBPrepared && RESOURCES)
+        RESOURCES->markMirrorFBStale();
 
     if (frame.kind == FRAME_DIRECT_SCANOUT) {
         const auto CANDIDATE = frame.scanoutCandidate.lock();

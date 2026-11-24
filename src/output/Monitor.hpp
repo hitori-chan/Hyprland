@@ -476,6 +476,8 @@ namespace Monitor {
         bool                                useFP16();
         NColorManagement::PImageDescription workBufferImageDescription();
         WP<Monitor::CMonitorResources>      resources();
+        // the current resources without making them: no GL, so callable outside a render pass
+        WP<Monitor::CMonitorResources> currentResources();
 
       private:
         void                updateMatrix();

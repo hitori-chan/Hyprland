@@ -3636,9 +3636,11 @@ PImageDescription CMonitor::workBufferImageDescription() {
 }
 
 WP<CMonitorResources> CMonitor::resources() {
-    // under an underlay's video, the frame goes to the overlay and keeps its alpha
-    const auto DRM_FORMAT = useFP16() ? DRM_FORMAT_ABGR16161616F : m_underlay.entered ? DRM_FORMAT_ARGB8888 : m_output->state->state().drmFormat;
-    const auto DESC       = workBufferImageDescription();
+    // under an underlay's video, the frame goes to the overlay and keeps its alpha; during a direct scanout the output's
+    // format is the client buffer's (a video's NV12, which GL cannot render to), so the composite's, saved on entry
+    const auto OUTPUT_FORMAT = m_lastScanout.expired() ? m_output->state->state().drmFormat : m_prevDrmFormat;
+    const auto DRM_FORMAT    = useFP16() ? DRM_FORMAT_ABGR16161616F : m_underlay.entered ? DRM_FORMAT_ARGB8888 : OUTPUT_FORMAT;
+    const auto DESC          = workBufferImageDescription();
 
     if (!m_resources || m_resources->m_drmFormat != DRM_FORMAT || m_resources->m_size != m_transformedSize)
         m_resources = makeUnique<CMonitorResources>(m_self, DRM_FORMAT, m_transformedSize, DESC);
@@ -3646,6 +3648,10 @@ WP<CMonitorResources> CMonitor::resources() {
     if (m_resources->m_imageDescription != DESC)
         m_resources->setImageDescription(DESC);
 
+    return m_resources;
+}
+
+WP<CMonitorResources> CMonitor::currentResources() {
     return m_resources;
 }
 
