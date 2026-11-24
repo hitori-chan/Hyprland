@@ -1,4 +1,6 @@
 #include "PluginAPI.hpp"
+
+#include <unistd.h>
 #include "../helpers/MiscFunctions.hpp"
 #include "../desktop/view/window/WindowPresentation.hpp"
 #include "../Compositor.hpp"
@@ -271,7 +273,9 @@ APICALL std::vector<SFunctionMatch> HyprlandAPI::findFunctionsByName(HANDLE hand
     // Neither KERN_PROC_PATHNAME nor /proc are supported
     const auto FPATH = std::filesystem::canonical("/usr/local/bin/Hyprland");
 #else
-    const auto FPATH = std::filesystem::canonical("/proc/self/exe");
+    // the running image, through our own pid (a child's /proc/self is its own); it opens even after an install
+    // replaced the file, where canonical() throws on the "(deleted)" target and the new file has other symbols
+    const auto FPATH = std::filesystem::path{std::format("/proc/{}/exe", getpid())};
 #endif
 
 #ifdef __clang__
