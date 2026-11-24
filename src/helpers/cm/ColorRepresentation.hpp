@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include "../math/Math.hpp"
 
 namespace NColorManagement {
     enum eYCbCrCoefficients : uint8_t {
@@ -34,5 +35,15 @@ namespace NColorManagement {
         eChromaLocation    chromaLocation = CM_CHROMA_LOCATION_UNSET;
 
         bool               operator==(const SColorRepresentation&) const = default;
+
+        // unset values as mpv and FFmpeg guess for an untagged picture: BT.601 at SD sizes, BT.709 above, limited range
+        SColorRepresentation resolved(const Vector2D& bufferSize) const {
+            SColorRepresentation r = *this;
+            if (r.coefficients == CM_YCBCR_COEFFICIENTS_UNSET)
+                r.coefficients = bufferSize.x >= 1280 || bufferSize.y > 576 ? CM_YCBCR_COEFFICIENTS_BT709 : CM_YCBCR_COEFFICIENTS_BT601;
+            if (r.range == CM_YCBCR_RANGE_UNSET)
+                r.range = CM_YCBCR_RANGE_LIMITED;
+            return r;
+        }
     };
 }

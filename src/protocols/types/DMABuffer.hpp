@@ -28,9 +28,9 @@ class CDMABuffer : public IHLBuffer {
     Aquamarine::SDMABUFAttrs                      m_attrs;
     std::array<Hyprutils::OS::CFileDescriptor, 4> m_fds;
 
-    // yuv re-imported with a color representation, m_texture uses the driver's defaults
+    // yuv re-imported with a color representation, m_texture with m_default: an untagged picture's
     SP<Render::ITexture>                   m_representedTexture;
-    NColorManagement::SColorRepresentation m_representation;
+    NColorManagement::SColorRepresentation m_representation, m_default;
 
     struct {
         CHyprSignalListener resourceDestroy;

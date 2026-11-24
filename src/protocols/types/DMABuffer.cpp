@@ -22,12 +22,13 @@ CDMABuffer::CDMABuffer(uint32_t id, wl_client* client, const Aquamarine::SDMABUF
         return;
 
     m_opaque  = NFormatUtils::isFormatOpaque(m_attrs.format);
-    m_texture = g_pHyprRenderer->createTexture(m_attrs, m_opaque); // texture takes ownership of the eglImage
+    m_default = NFormatUtils::isFormatYUV(m_attrs.format) ? NColorManagement::SColorRepresentation{}.resolved(m_attrs.size) : NColorManagement::SColorRepresentation{};
+    m_texture = g_pHyprRenderer->createTexture(m_attrs, m_opaque, m_default); // texture takes ownership of the eglImage
 
     if UNLIKELY (!m_texture) {
         LOG(Log::ERR, "CDMABuffer: failed to import EGLImage, retrying as implicit");
         m_attrs.modifier = DRM_FORMAT_MOD_INVALID;
-        m_texture        = g_pHyprRenderer->createTexture(m_attrs, m_opaque);
+        m_texture        = g_pHyprRenderer->createTexture(m_attrs, m_opaque, m_default);
 
         if UNLIKELY (!m_texture) {
             LOG(Log::ERR, "CDMABuffer: failed to import EGLImage");
@@ -77,8 +78,12 @@ void CDMABuffer::endDataPtr() {
     // FIXME:
 }
 
-SP<Render::ITexture> CDMABuffer::textureFor(const NColorManagement::SColorRepresentation& representation) {
-    if (!NFormatUtils::isFormatYUV(m_attrs.format) || representation == NColorManagement::SColorRepresentation{})
+SP<Render::ITexture> CDMABuffer::textureFor(const NColorManagement::SColorRepresentation& requested) {
+    if (!NFormatUtils::isFormatYUV(m_attrs.format))
+        return m_texture;
+
+    const auto representation = requested.resolved(m_attrs.size);
+    if (representation == m_default)
         return m_texture;
 
     if (m_representedTexture && m_representation == representation)
@@ -86,7 +91,7 @@ SP<Render::ITexture> CDMABuffer::textureFor(const NColorManagement::SColorRepres
 
     auto texture = g_pHyprRenderer->createTexture(m_attrs, m_opaque, representation);
     if UNLIKELY (!texture || !texture->ok()) {
-        LOG(Log::ERR, "CDMABuffer: failed to import with a color representation, using driver defaults");
+        LOG(Log::ERR, "CDMABuffer: failed to import with a color representation, using the untagged default");
         return m_texture;
     }
 
