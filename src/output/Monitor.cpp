@@ -2331,8 +2331,19 @@ bool CMonitor::underlayBlurredOver(PHLWINDOW window, const CBox& hole) {
     if (!*PBLUR)
         return false;
 
-    for (auto const& w : Desktop::windowState()->windows()) {
-        if (w == window || !w->mapped() || w->isHidden() || !w->alphaNonZero() || !w->presentation().visibleOnMonitor(m_self.lock()))
+    // the renderer's order (renderWorkspaceWindows): tiled windows, then floating ones as stacked, pinned ones last
+    const auto& WINDOWS        = Desktop::windowState()->windows();
+    const auto  VIDEO_AT       = std::ranges::find(WINDOWS, window);
+    const bool  VIDEO_FLOATING = window->isFloating() && !(window->m_state & WINDOW_STATE_PINNED) && VIDEO_AT != WINDOWS.end();
+
+    for (auto it = WINDOWS.begin(); it != WINDOWS.end(); ++it) {
+        const auto& w = *it;
+        // only what is drawn here: a window on a hidden workspace overlaps in geometry alone
+        if (w == window || !w->mapped() || w->isHidden() || !w->alphaNonZero() || !g_pHyprRenderer->shouldRenderWindow(w, m_self.lock()))
+            continue;
+
+        // drawn under the video's window, so not over its hole: a tiled one under a floating one, or a floating one below it
+        if (VIDEO_FLOATING && (!w->isFloating() || (!(w->m_state & WINDOW_STATE_PINNED) && it < VIDEO_AT)))
             continue;
 
         if (w->m_ruleApplicator->noBlur().valueOrDefault() || !w->getFullWindowBoundingBox().overlaps(hole))
