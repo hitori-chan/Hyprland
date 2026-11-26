@@ -167,9 +167,9 @@ void CMonitor::onConnect(bool noRule) {
 
         PROTO::presentation->onPresented(m_self.lock(), ts, event.refresh, event.seq, flags, event.commitID, event.presented);
 
-        // a skipped underlay frame's frame events follow the last presentation by a refresh
+        // a frame that flips nothing answers a refresh after the last presentation
         if (event.presented)
-            m_underlay.lastFrameEvents = Time::fromTimespec(&ts);
+            m_skippedFrame.last = Time::fromTimespec(&ts);
 
         m_commitCoordinator->onPresented(event.commitID, event.presented);
 
@@ -2648,43 +2648,59 @@ bool CMonitor::commitUnderlay(std::optional<CDamageRing::CTransaction> damage) {
     return true;
 }
 
-// a skipped underlay frame flips nothing, so no presentation paces the clients: answered at once, Firefox commits again
-// at once (about 5,500 skipped frames a second, build 4). Their frame events and the video's feedback go out a refresh
-// after the last ones or the last presentation, as a flip would send them
-void CMonitor::scheduleUnderlayFrameEvents() {
-    if (m_underlayFrameTimer && m_underlayFrameTimer->armed())
+// a frame that flips nothing (a skipped underlay frame, or a direct scan-out of the buffer already on the plane) has no
+// presentation to pace the clients: answered at once, Firefox commits its next frame request at once (about 5,500
+// skipped underlay frames a second, build 4; 5,000 round trips a second on a scanned-out 30 fps video). What a flip
+// would send goes out a refresh after the last presentation or the last such answer
+void CMonitor::scheduleSkippedFrameEvents() {
+    if (m_skippedFrame.timer && m_skippedFrame.timer->armed())
         return;
 
     const auto PERIOD = std::chrono::duration_cast<Time::steady_dur>(std::chrono::duration<double>(1.0 / std::max(sc<double>(m_refreshRate), 1.0)));
     const auto NOW    = Time::steadyNow();
-    const auto DUE    = m_underlay.lastFrameEvents + PERIOD;
+    const auto DUE    = m_skippedFrame.last + PERIOD;
 
-    if (!m_underlayFrameTimer) {
-        m_underlayFrameTimer = makeShared<CEventLoopTimer>(
+    if (!m_skippedFrame.timer) {
+        m_skippedFrame.timer = makeShared<CEventLoopTimer>(
             std::nullopt,
             [self = m_self](SP<CEventLoopTimer>, void*) {
                 if (const auto MON = self.lock())
-                    MON->sendUnderlayFrameEvents();
+                    MON->sendSkippedFrameEvents();
             },
             nullptr);
-        g_pEventLoopManager->addTimer(m_underlayFrameTimer);
+        g_pEventLoopManager->addTimer(m_skippedFrame.timer);
     }
 
-    m_underlayFrameTimer->updateTimeout(DUE > NOW ? DUE - NOW : Time::steady_dur{0});
+    m_skippedFrame.timer->updateTimeout(DUE > NOW ? DUE - NOW : Time::steady_dur{0});
 }
 
-void CMonitor::sendUnderlayFrameEvents() {
-    const auto NOW             = Time::steadyNow();
-    m_underlay.lastFrameEvents = NOW;
+void CMonitor::sendSkippedFrameEvents() {
+    const auto NOW      = Time::steadyNow();
+    m_skippedFrame.last = NOW;
 
-    const auto PVIDEO = m_underlay.surface.lock();
-    if (PVIDEO && m_underlay.entered)
-        PVIDEO->presentFeedback(NOW, m_self.lock());
+    // a direct scan-out's: the surface's frame events and feedback, as attemptDirectScanout() answered them at once
+    if (const auto SCANOUT = m_skippedFrame.scanout.lock(); SCANOUT) {
+        SCANOUT->presentFeedback(NOW, m_self.lock());
+        if (const auto MAIN = m_skippedFrame.scanoutMain.lock(); MAIN)
+            MAIN->frame(NOW);
+        PROTO::presentation->tagQueued(m_self.lock(), 0, m_tearingState.activelyTearing, m_vrrActive);
+    }
 
-    if (m_activeWorkspace)
-        g_pHyprRenderer->sendFrameEventsToWorkspace(m_self.lock(), m_activeWorkspace, NOW);
-    if (m_activeSpecialWorkspace)
-        g_pHyprRenderer->sendFrameEventsToWorkspace(m_self.lock(), m_activeSpecialWorkspace, NOW);
+    // an underlay's: the video's feedback, every client's frame events
+    if (m_skippedFrame.underlay) {
+        const auto PVIDEO = m_underlay.surface.lock();
+        if (PVIDEO && m_underlay.entered)
+            PVIDEO->presentFeedback(NOW, m_self.lock());
+
+        if (m_activeWorkspace)
+            g_pHyprRenderer->sendFrameEventsToWorkspace(m_self.lock(), m_activeWorkspace, NOW);
+        if (m_activeSpecialWorkspace)
+            g_pHyprRenderer->sendFrameEventsToWorkspace(m_self.lock(), m_activeSpecialWorkspace, NOW);
+    }
+
+    m_skippedFrame.underlay = false;
+    m_skippedFrame.scanout.reset();
+    m_skippedFrame.scanoutMain.reset();
 }
 
 void CMonitor::leaveUnderlay() {
@@ -2742,10 +2758,14 @@ bool CMonitor::attemptDirectScanout() {
 
     // #TODO this entire bit needs figuring out, vrr goes down the drain without it
     if (!LEFT_UNDERLAY && PBUFFER == m_output->state->state().buffer && PLACEMENT == m_output->state->state().bufferPlacement && *PSAME) {
-        PSURFACE->presentFeedback(Time::steadyNow(), m_self.lock());
+        // the same buffer is not committed again, so nothing flips: a commit with no new buffer (Firefox's frame request
+        // alone, on most refreshes of a 30 fps video) is answered at the refresh, as its flip would be
+        m_scanoutFrames.unchanged++;
+        m_skippedFrame.scanout = PSURFACE;
+        m_skippedFrame.scanoutMain.reset();
         if (!PSOLITARY) // a video client may wait for frames on its main surface
-            PCANDIDATE->wlSurface()->resource()->frame(Time::steadyNow());
-        PROTO::presentation->tagQueued(m_self.lock(), 0, m_tearingState.activelyTearing, m_vrrActive);
+            m_skippedFrame.scanoutMain = PCANDIDATE->wlSurface()->resource();
+        scheduleSkippedFrameEvents();
 
         if (m_scanoutNeedsCursorUpdate) {
             if (!m_state.test()) {
@@ -2866,6 +2886,7 @@ bool CMonitor::attemptDirectScanout() {
     }
 
     scanoutCommitted = true;
+    m_scanoutFrames.flipped++;
 
     m_scanoutNeedsCursorUpdate = false;
 

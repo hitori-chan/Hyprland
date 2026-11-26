@@ -158,6 +158,12 @@ namespace Monitor {
         bool m_directScanoutIsActive    = false; // for cleanup logic. m_lastScanout.expired() can become true before the DS cleanup if client crashes/exits while DS is active.
         bool m_scanoutNeedsCursorUpdate = false;
 
+        // direct scan-out frames since the start: committed, or with the buffer on the plane unchanged (no flip)
+        struct {
+            uint64_t flipped   = 0;
+            uint64_t unchanged = 0;
+        } m_scanoutFrames;
+
         // for the underlay: a fullscreen window's video, or with render:underlay 2 a window's content, on the primary plane,
         // the rest of the frame composited over it on an overlay plane, with a hole where it shows
         struct {
@@ -174,9 +180,17 @@ namespace Monitor {
             bool                                       entered      = false; // from the first underlay frame to the leave: the primary is in the video's format
             bool                                       active       = false; // the overlay plane is on
             bool                                       videoDamaged = false; // a new video buffer since the last commit
-            Time::steady_tp                            lastFrameEvents;      // the clients' last frame events, or the last presentation
         } m_underlay;
-        SP<CEventLoopTimer> m_underlayFrameTimer; // a skipped underlay frame's frame events, one refresh after the last
+
+        // a frame that flips nothing (an underlay's video, or a direct scan-out's buffer, unchanged): no presentation paces
+        // the clients, so what a flip would answer goes out a refresh after the last presentation or the last such answer
+        struct {
+            Time::steady_tp        last;             // the last such answer, or the last presentation
+            SP<CEventLoopTimer>    timer;            // armed while an answer waits
+            bool                   underlay = false; // an underlay frame: the clients' frame events and the video's feedback
+            WP<CWLSurfaceResource> scanout;          // a direct scan-out's surface: its frame events and feedback
+            WP<CWLSurfaceResource> scanoutMain;      // and, under a scanned-out video, its window's main surface's frame events
+        } m_skippedFrame;
 
         // underlay frames since the start: the overlay rendered, or the primary flipped alone (the video's damage only)
         struct {
@@ -370,8 +384,8 @@ namespace Monitor {
         bool         commitUnderlay(std::optional<CDamageRing::CTransaction> damage); // after it: the video on the primary, the frame over it
         void         leaveUnderlay();                                                 // the overlay goes off with the next commit
         void         underlayFailed();
-        void         scheduleUnderlayFrameEvents(); // a skipped underlay frame: the clients' frame events at the refresh
-        void         sendUnderlayFrameEvents();
+        void         scheduleSkippedFrameEvents(); // a frame that flipped nothing (m_skippedFrame says whose): its answers at the refresh
+        void         sendSkippedFrameEvents();
         bool         isMultiGPU();
         void         setCTM(const Mat3x3& ctm);
         void         onCursorMovedOnMonitor();

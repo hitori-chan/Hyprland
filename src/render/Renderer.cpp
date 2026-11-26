@@ -2523,7 +2523,8 @@ void IHyprRenderer::renderMonitor(PHLMONITOR pMonitor, bool commit) {
         if (PVIDEO && PVIDEO->m_current.buffer && PVIDEO->m_current.buffer.m_buffer == pMonitor->m_output->state->state().buffer && !pMonitor->m_scanoutNeedsCursorUpdate &&
             !pMonitor->hdrHeadroomPending()) {
             pMonitor->m_underlayFrames.skipped++;
-            pMonitor->scheduleUnderlayFrameEvents();
+            pMonitor->m_skippedFrame.underlay = true;
+            pMonitor->scheduleSkippedFrameEvents();
             return;
         }
 

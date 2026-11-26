@@ -287,6 +287,7 @@ std::string CCommandFormatter::getMonitorData(PHLMONITOR m, eHyprCtlOutputFormat
     "tearingBlockedBy": {},
     "directScanoutTo": "{:x}",
     "directScanoutBlockedBy": {},
+    "directScanoutFrames": {{"flipped": {}, "unchanged": {}}},
     "underlayTo": "{:x}",
     "underlayBlockedBy": {},
     "underlayFrames": {{"rendered": {}, "videoOnly": {}, "skipped": {}}},
@@ -347,6 +348,8 @@ std::string CCommandFormatter::getMonitorData(PHLMONITOR m, eHyprCtlOutputFormat
             getTearingBlockedReason(m, format),
             rc<uint64_t>(m->m_lastScanout.get()),
             getDSBlockedReason(m, format),
+            m->m_scanoutFrames.flipped,
+            m->m_scanoutFrames.unchanged,
             rc<uint64_t>(m->m_underlay.active ? m->m_underlay.surface.get() : nullptr),
             getUnderlayBlockedReason(m, format),
             m->m_underlayFrames.rendered,
@@ -373,7 +376,8 @@ std::string CCommandFormatter::getMonitorData(PHLMONITOR m, eHyprCtlOutputFormat
             "Monitor {} (ID {}):\n\t{}x{}@{:.5f} at {}x{}\n\tdescription: {}\n\tmake: {}\n\tmodel: {}\n\tphysical size (mm): {}x{}\n\tserial: {}\n\tactive workspace: {} ({})\n\t"
             "special workspace: {} ({})\n\treserved: {} {} {} {}\n\tscale: {}\n\ttransform: {}\n\tfocused: {}\n\t"
             "dpmsStatus: {}\n\tvrr: {}\n\tsolitary: {:x}\n\tsolitaryBlockedBy: {}\n\tactivelyTearing: {}\n\ttearingBlockedBy: {}\n\tdirectScanoutTo: "
-            "{:x}\n\tdirectScanoutBlockedBy: {}\n\tunderlayTo: {:x}\n\tunderlayBlockedBy: {}\n\tunderlayFrames: {} rendered, {} video-only, {} skipped\n\tcompositeFrames: {} "
+            "{:x}\n\tdirectScanoutBlockedBy: {}\n\tdirectScanoutFrames: {} flipped, {} unchanged\n\t"
+            "underlayTo: {:x}\n\tunderlayBlockedBy: {}\n\tunderlayFrames: {} rendered, {} video-only, {} skipped\n\tcompositeFrames: {} "
             "direct, {} copied\n\thdrHeadroom: {:.2f} "
             "(target {:.2f}, request {:.0f} nits)\n\tdisabled: "
             "{}\n\tcurrentFormat: {}\n\tmirrorOf: "
@@ -408,6 +412,8 @@ std::string CCommandFormatter::getMonitorData(PHLMONITOR m, eHyprCtlOutputFormat
             getTearingBlockedReason(m, format),
             rc<uint64_t>(m->m_lastScanout.get()),
             getDSBlockedReason(m, format),
+            m->m_scanoutFrames.flipped,
+            m->m_scanoutFrames.unchanged,
             rc<uint64_t>(m->m_underlay.active ? m->m_underlay.surface.get() : nullptr),
             getUnderlayBlockedReason(m, format),
             m->m_underlayFrames.rendered,
